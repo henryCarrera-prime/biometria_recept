@@ -16,7 +16,9 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from biometria.presentation.api import VerifyBiometricsAPIView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/biometrics/verify', VerifyBiometricsAPIView.as_view()),
 ]
