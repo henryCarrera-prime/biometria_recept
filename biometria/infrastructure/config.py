@@ -24,6 +24,9 @@ class DummyGlasses:       # implements GlassesClassifier
 class DummyAntiSpoof:     # implements AntiSpoof
     def spoof_probability(self, img_bgr): return 0.20  # 20% spoof
 
+class NoopLiveness:
+    def score(self, face_bgr): return 0.0
+
 def build_verify_service_for_local_dirs() -> VerifyBiometricsService:
     thresholds = Thresholds(
         similarity=float(os.getenv("SIMILARITY_TH","95")),

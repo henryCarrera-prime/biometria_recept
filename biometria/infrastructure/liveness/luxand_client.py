@@ -19,6 +19,7 @@ class LuxandClient:
                 files=files, timeout=12
             )
             if r.status_code != 200: return 0.0
+            print("Luxand response:", r.json())
             return float(r.json().get("liveness", 0.0))
         except Exception:
             return 0.0

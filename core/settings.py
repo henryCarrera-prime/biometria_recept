@@ -11,11 +11,13 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import environ, os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
+env = environ.Env()
+environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -26,6 +28,11 @@ SECRET_KEY = 'django-insecure-90owbjbi)s6%n*&9e69tw_g#oguy-*vb!no^swty3_$b5n5as2
 DEBUG = True
 
 ALLOWED_HOSTS = []
+# print("AWS_REGION=", os.getenv("AWS_REGION"))
+# print("AWS_ACCESS_KEY_ID=", os.getenv("AWS_ACCESS_KEY_ID"))
+# print("AWS_SECRET_ACCESS_KEY=", os.getenv("AWS_SECRET_ACCESS_KEY"))
+# print("LUXAND_TOKEN=", os.getenv("LUXAND_TOKEN"))
+CORS_ALLOW_ALL_ORIGINS = True
 
 
 # Application definition
