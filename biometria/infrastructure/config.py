@@ -9,11 +9,11 @@ from .storage.local_repositories import LocalReferenceRepository, LocalFramesRep
 # Adaptadores
 from .similarity.rekognition_adapter import RekognitionMatcher
 from .liveness.luxand_client import LuxandClient
-
+import cv2
 # Dummies (mientras cableas modelos reales)
 class DummyFaceDetector:  # implements FaceDetector
     def detect(self, img_bgr):
-        import cv2
+       
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         sh = cv2.Laplacian(gray, cv2.CV_64F).var()
         return {"bbox": (0,0,10,10), "landmarks": None} if sh >= 30 else None

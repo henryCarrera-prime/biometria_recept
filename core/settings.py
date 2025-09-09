@@ -15,7 +15,39 @@ import environ, os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE  = os.getenv("LOG_FILE", str(BASE_DIR / "biometria.log"))
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": { "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s" },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+            "level": LOG_LEVEL,
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_FILE,
+            "maxBytes": 5 * 1024 * 1024,
+            "backupCount": 3,
+            "encoding": "utf-8",
+            "formatter": "simple",
+            "level": LOG_LEVEL,
+        },
+    },
+    "loggers": {
+        "biometria.verify": {  # ← logger del servicio
+            "handlers": ["console", "file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}
 env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 # Quick-start development settings - unsuitable for production
