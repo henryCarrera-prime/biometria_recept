@@ -1,0 +1,5 @@
+{
+  "uuid_proceso_biometria": "d57f024c-0754-43ba-9815-5e1b5668b0c5",
+  "error": "An error occurred (AccessDenied) when calling the ListObjectsV2 operation: User: arn:aws:iam::510358950103:user/enext is not authorized to perform: s3:ListBucket on resource: \"arn:aws:s3:::enext-server-file\" because no identity-based policy allows the s3:ListBucket action",
+  "finished_at_utc": "2025-09-10T19:58:52.020264+00:00"
+}

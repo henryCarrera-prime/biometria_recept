@@ -1,0 +1,36 @@
+{
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea744",
+  "count": 2,
+  "items": [
+    {
+      "uuid_proceso_biometria": "afe6fb85-b00f-4145-b6b2-fbe10b502b81",
+      "status": "false",
+      "message": "Evaluación 89.01% (< 95.00%) - no aprobado.",
+      "evaluation_pct": 89.01,
+      "similarity": 99.84,
+      "is_live": false,
+      "is_match": true,
+      "liveness_score": 0.28,
+      "reference_uri": "s3://enext-server-file/dataset-inicial/",
+      "frames_uri": "s3://enext-server-file/dataset-index/",
+      "frames_count": 5,
+      "started_at_utc": "2025-09-10T20:43:09.832914+00:00",
+      "finished_at_utc": "2025-09-10T20:43:18.386731+00:00"
+    },
+    {
+      "uuid_proceso_biometria": "126f32b8-3c53-4ad0-943d-7a8fbcb35d44",
+      "status": "false",
+      "message": "Evaluación 89.01% (< 95.00%) - no aprobado.",
+      "evaluation_pct": 89.01,
+      "similarity": 99.84,
+      "is_live": false,
+      "is_match": true,
+      "liveness_score": 0.28,
+      "reference_uri": "s3://enext-server-file/dataset-inicial/",
+      "frames_uri": "s3://enext-server-file/dataset-index/",
+      "frames_count": 5,
+      "started_at_utc": "2025-09-10T20:39:38.482180+00:00",
+      "finished_at_utc": "2025-09-10T20:39:46.466121+00:00"
+    }
+  ]
+}

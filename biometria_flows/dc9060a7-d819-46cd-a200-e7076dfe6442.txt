@@ -1,0 +1,23 @@
+{
+  "uuid_proceso_biometria": "dc9060a7-d819-46cd-a200-e7076dfe6442",
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea744",
+  "started_at_utc": "2025-09-10T19:49:00.786428+00:00",
+  "finished_at_utc": "2025-09-10T19:49:07.696944+00:00",
+  "reference_uri": "D:/TRABAJOGERALD/Django/biometria/04205d9c-1439-4a6e-a06c-21012a4ea744",
+  "frames_uri": "D:/TRABAJOGERALD/Django/biometria/04205d9c-1439-4a6e-a06c-21012a4ea744-frames",
+  "frames_count": 6,
+  "thresholds": {
+    "similarity": 95.0,
+    "live": 0.9,
+    "luxand": 0.85
+  },
+  "result": {
+    "status": "false",
+    "message": "Evaluación 89.01% (< 95.00%) - no aprobado.",
+    "is_live": false,
+    "is_match": true,
+    "liveness_score": 0.28,
+    "similarity": 99.84,
+    "evaluation_pct": 89.01
+  }
+}

@@ -5,7 +5,7 @@ from ..application.verify_biometrics_service import VerifyBiometricsService
 
 # Repos locales (carpetas Windows)
 from .storage.local_repositories import LocalReferenceRepository, LocalFramesRepository
-
+from .storage.s3_repositories import SmartReferenceRepository, SmartFramesRepository
 # Adaptadores
 from .similarity.rekognition_adapter import RekognitionMatcher
 from .liveness.luxand_client import LuxandClient
@@ -21,19 +21,22 @@ class DummyAntiSpoof:     # implements AntiSpoof
 class NoopLiveness:
     def score(self, face_bgr): return 0.0
 
+def get_thresholds() -> Thresholds:
+    return Thresholds(
+        similarity=float(os.getenv("SIMILARITY_TH", "95")),
+        live=float(os.getenv("LIVE_TH", "0.90")),
+        luxand=float(os.getenv("LUXAND_LIVENESS_TH", "0.85")),
+    )
+def _common_detector_and_matcher(thresholds: Thresholds):
+    detector = RekognitionFaceDetector(region=os.getenv("AWS_REGION", "us-east-1"))
+    matcher = RekognitionMatcher(
+        region=os.getenv("AWS_REGION", "us-east-1"),
+        similarity_th=thresholds.similarity
+    )
+    return detector, matcher
 def build_verify_service_for_local_dirs() -> VerifyBiometricsService:
-    thresholds = Thresholds(
-        similarity=float(os.getenv("SIMILARITY_TH","95")),
-        live=float(os.getenv("LIVE_TH","0.90")),
-        luxand=float(os.getenv("LUXAND_LIVENESS_TH","0.85")),
-    )
-    detector = RekognitionFaceDetector(
-        region=os.getenv("AWS_REGION","us-east-1"),
-        min_confidence=float(os.getenv("FACE_MIN_CONF","80")),
-        min_face_rel_size=float(os.getenv("FACE_MIN_REL_SIZE","0.05")),  # 5% del frame
-        attributes=["ALL"],  # devuelve landmarks
-    )
-
+    thresholds = get_thresholds()
+    detector, matcher = _common_detector_and_matcher(thresholds)
     return VerifyBiometricsService(
         reference_repo=LocalReferenceRepository(),
         frames_repo=LocalFramesRepository(),
@@ -45,5 +48,19 @@ def build_verify_service_for_local_dirs() -> VerifyBiometricsService:
             region=os.getenv("AWS_REGION","us-east-1"),
             similarity_th=thresholds.similarity
         ),
+        thresholds=thresholds
+    )
+
+def build_verify_service_auto() -> VerifyBiometricsService:
+    thresholds = get_thresholds()
+    detector, matcher = _common_detector_and_matcher(thresholds)
+    return VerifyBiometricsService(
+        reference_repo=SmartReferenceRepository(),
+        frames_repo=SmartFramesRepository(),
+        detector=detector,
+        glasses=DummyGlasses(),
+        antispoof=DummyAntiSpoof(),
+        liveness=LuxandClient(token=os.getenv("LUXAND_TOKEN", "")),
+        matcher=matcher,
         thresholds=thresholds
     )

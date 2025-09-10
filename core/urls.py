@@ -16,9 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from biometria.presentation.api import VerifyBiometricsAPIView
+from biometria.presentation.api import VerifyBiometricsAPIView, ConsultBiometricsAPIView,TraceGeneralProcessAPIView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/biometrics/verify', VerifyBiometricsAPIView.as_view()),
+    path('api/biometrics/verify/<str:uuid_biometria>', ConsultBiometricsAPIView.as_view()),
+     path('api/biometrics/trace/<str:uuid_proceso>', TraceGeneralProcessAPIView.as_view()),
 ]
