@@ -4,9 +4,16 @@ from typing import List, Dict, Any, Optional
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-
+from django.http import FileResponse
 from biometria.infrastructure.config import build_verify_service_auto, get_thresholds
-
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from .schemas import (
+    BiometricsVerifyRequestSerializer,
+    BiometricsVerifyResponseSerializer,
+    BiometricsFlowSerializer,
+    TraceResponseSerializer
+)
 FLOW_LOG_DIR = os.getenv("FLOW_LOG_DIR", os.path.join(os.getcwd(), "biometria_flows"))
 
 def _ensure_dir(path: str):
@@ -114,6 +121,18 @@ class VerifyBiometricsAPIView(APIView):
       "framesIndexUrl":    "s3://.../carpeta-frames/"
     }
     """
+    @swagger_auto_schema(
+        operation_summary="Verificar biometría (S3 o local)",
+        operation_description=(
+            "Ejecuta el flujo de verificación.\n\n"
+            "- `referenceImageUrl` y `framesIndexUrl` aceptan rutas locales o URIs/URLs S3.\n"
+            "- Retorna un nuevo `uuid_proceso_biometria` y la evaluación.\n"
+            "- También escribe un `.txt` con JSON del flujo para auditoría."
+        ),
+        request_body=BiometricsVerifyRequestSerializer,
+        responses={200: BiometricsVerifyResponseSerializer},
+        tags=["Biometría"]
+    )
     def post(self, request):
         try:
             body = request.data or {}
@@ -225,23 +244,80 @@ class VerifyBiometricsAPIView(APIView):
                 "data": [{"uuid_proceso_biometria": uuid_biometria}]
             }, status=200)
 
+# ---------- Consultar por uuid_proceso_biometria ----------
+download_param = openapi.Parameter(
+    "download",
+    openapi.IN_QUERY,
+    description="Si es true/1, descarga el .txt original como attachment.",
+    type=openapi.TYPE_BOOLEAN
+)
 class ConsultBiometricsAPIView(APIView):
     """
-    GET /api/biometrics/verify/<uuid_proceso_biometria>
-    Devuelve el JSON guardado en el .txt del flujo, o 404 si no existe.
+    GET /api/biometrics/verify/<uuid_proceso_biometria>[?download=1]
+    - Sin query: retorna el JSON guardado en el .txt (o raw si no es JSON).
+    - Con ?download=1: descarga el .txt original (attachment).
     """
+    @swagger_auto_schema(
+        operation_summary="Consultar ejecución por uuid_proceso_biometria",
+        operation_description=(
+            "Devuelve el JSON del flujo guardado (y enlaces `_links`).\n"
+            "Si `download=1`, descarga el `.txt` original (text/plain)."
+        ),
+        manual_parameters=[download_param],
+        responses={
+            200: BiometricsFlowSerializer,
+            # Variante de descarga (OpenAPI 2.0): type=file
+            "200 (download)": openapi.Schema(type=openapi.TYPE_FILE, description="Archivo .txt del flujo"),
+            404: "No existe el proceso solicitado."
+        },
+        tags=["Biometría"]
+    )
     def get(self, request, uuid_biometria: str):
         _ensure_dir(FLOW_LOG_DIR)
         path = os.path.join(FLOW_LOG_DIR, f"{uuid_biometria}.txt")
         if not os.path.exists(path):
             return Response({"detail": "No existe el proceso solicitado."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Modo descarga
+        download = (request.query_params.get("download") or "false").lower() in ("1", "true", "yes")
+        if download:
+            # Stream del archivo como attachment
+            return FileResponse(
+                open(path, "rb"),
+                as_attachment=True,
+                filename=f"{uuid_biometria}.txt",
+                content_type="text/plain; charset=utf-8"
+            )
+
+        # Modo JSON + enlaces
         data = _read_json_file(path)
         if data is None:
             with open(path, "r", encoding="utf-8") as f:
                 text = f.read()
-            return Response({"uuid_proceso_biometria": uuid_biometria, "raw": text}, status=200)
-        return Response(data, status=200)
+            payload = {"uuid_proceso_biometria": uuid_biometria, "raw": text}
+        else:
+            payload = data
 
+        # Enlaces útiles (self + descarga)
+        payload.setdefault("_links", {})
+        payload["_links"]["self"] = request.build_absolute_uri()
+        # Aseguramos que la URL tenga el query download=1
+        base_url = request.build_absolute_uri().split("?", 1)[0]
+        payload["_links"]["download"] = f"{base_url}?download=1"
+
+        return Response(payload, status=200)
+
+
+# ---------- Trazabilidad por uuidProceso ----------
+expand_param = openapi.Parameter(
+    "expand", openapi.IN_QUERY, description="Si true, retorna el JSON completo de cada ejecución.", type=openapi.TYPE_BOOLEAN
+)
+offset_param = openapi.Parameter(
+    "offset", openapi.IN_QUERY, description="Desplazamiento de paginación.", type=openapi.TYPE_INTEGER, default=0
+)
+limit_param = openapi.Parameter(
+    "limit", openapi.IN_QUERY, description="Tamaño de página.", type=openapi.TYPE_INTEGER, default=50
+)
 class TraceGeneralProcessAPIView(APIView):
     """
     GET /api/biometrics/trace/<uuid_proceso>?expand=false&offset=0&limit=50
@@ -250,6 +326,16 @@ class TraceGeneralProcessAPIView(APIView):
     - Por defecto devuelve un resumen por ítem (rápido). Con expand=true, abre cada .txt para detalle completo.
     - Orden: más nuevo primero.
     """
+    @swagger_auto_schema(
+        operation_summary="Trazabilidad por uuidProceso",
+        operation_description=(
+            "Lista todas las ejecuciones realizadas para un proceso general (`uuidProceso`).\n"
+            "Orden: más nuevo primero. Usa `expand=true` para ver cada flujo completo."
+        ),
+        manual_parameters=[expand_param, offset_param, limit_param],
+        responses={200: TraceResponseSerializer},
+        tags=["Biometría"]
+    )
     def get(self, request, uuid_proceso: str):
         expand = (request.query_params.get("expand") or "false").lower() in ("1", "true", "yes")
         try:
