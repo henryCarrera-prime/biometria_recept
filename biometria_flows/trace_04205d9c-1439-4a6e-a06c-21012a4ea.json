@@ -1,0 +1,22 @@
+{
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+  "count": 2,
+  "items": [
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "65d122dd-ba22-4fea-b80f-3935c1ef8e31",
+      "status": "false",
+      "message": "Cédula válida",
+      "evaluation_pct": 49.52,
+      "finished_at_utc": "2025-09-17T20:31:08.483070+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "b9d8679d-62c8-4bd8-a31e-b84732b85187",
+      "status": "false",
+      "message": "Cédula válida",
+      "evaluation_pct": 49.52,
+      "finished_at_utc": "2025-09-17T20:17:11.183401+00:00"
+    }
+  ]
+}

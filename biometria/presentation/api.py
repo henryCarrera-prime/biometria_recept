@@ -8,13 +8,23 @@ from django.http import FileResponse
 from biometria.infrastructure.config import build_verify_service_auto, get_thresholds
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+
+from biometria.infrastructure.similarity.rekognition_adapter import RekognitionMatcher
+from biometria.infrastructure.storage.s3_repositories import SmartReferenceRepository
 from .schemas import (
     BiometricsVerifyRequestSerializer,
     BiometricsVerifyResponseSerializer,
     BiometricsFlowSerializer,
     TraceResponseSerializer
 )
+from biometria.application.verify_cedula_service import VerifyEcuadorIdService
+from biometria.infrastructure.classifier.keras_cedula_classifier import KerasEcuadorIdClassifier
+from biometria.infrastructure.detection.rekognation_face_detector import RekognitionFaceDetector
+
+
+
 FLOW_LOG_DIR = os.getenv("FLOW_LOG_DIR", os.path.join(os.getcwd(), "biometria_flows"))
+
 
 def _ensure_dir(path: str):
     if not os.path.exists(path):
@@ -374,3 +384,178 @@ class TraceGeneralProcessAPIView(APIView):
             "count": len(items) if not expand else len(items),
             **sliced
         }, status=200)
+
+
+# ---------- Verificación de cédula ecuatoriana ----------
+class VerifyCedulaAPIView(APIView):
+    """
+    POST /api/biometrics/cedula/verify
+    Body:
+    {
+      "uuidProceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+      "imageBase64": "...",
+      "referenceImageUrl": "s3://.../..."  // opcional si ahora no la usas
+    }
+    """
+    @swagger_auto_schema(
+        operation_summary="Verificar cédula (imagen base64 + opcional referencia)",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["uuidProceso", "imageBase64"],
+            properties={
+                "uuidProceso": openapi.Schema(type=openapi.TYPE_STRING, format="uuid"),
+                "imageBase64": openapi.Schema(type=openapi.TYPE_STRING),
+                "referenceImageUrl": openapi.Schema(type=openapi.TYPE_STRING),
+            },
+        ),
+        responses={200: "OK / Unprocessable", 500: "Error"},
+    )
+    def post(self, request):
+        uuid_proceso = request.data.get("uuidProceso")
+        image_b64    = request.data.get("imageBase64")
+        reference_url= request.data.get("referenceImageUrl")
+
+        if not uuid_proceso or not image_b64:
+            return Response({"status": "false", "message": "Parámetros requeridos: uuidProceso, imageBase64"}, status=400)
+
+        service = VerifyEcuadorIdService(
+            id_classifier=KerasEcuadorIdClassifier(),
+            face_detector=RekognitionFaceDetector(),
+            ref_repo=SmartReferenceRepository(),
+            similarity=RekognitionMatcher(),
+        )
+
+        started_at = _now_iso()
+        try:
+            result = service.execute(uuid_proceso, image_b64, reference_url)
+            # result.payload: { "uuidProceso": ..., "data": [ { uuid_proceso_cedula, evaluacion } ] }
+            uuid_ced = result.payload["data"][0]["uuid_proceso_cedula"]
+            evaluacion = float(result.payload["data"][0]["evaluacion"])
+
+            # -------- Guardar flujo CÉDULA en TXT (JSON) --------
+            _ensure_dir(FLOW_LOG_DIR)
+            flow = {
+                "type": "cedula",
+                "uuid_proceso_cedula": uuid_ced,
+                "uuid_proceso": uuid_proceso,
+                "started_at_utc": started_at,
+                "finished_at_utc": _now_iso(),
+                "reference_uri": reference_url,
+                "result": {
+                    "status": "success" if result.status else "false",
+                    "message": result.message,
+                    "evaluation_pct": round(evaluacion, 2)
+                }
+            }
+            log_path = os.path.join(FLOW_LOG_DIR, f"{uuid_ced}.txt")
+            _safe_write_json(log_path, flow)
+
+            # -------- Actualizar índice general del proceso (opcional pero consistente) --------
+            summary_item = {
+                "type": "cedula",
+                "uuid_proceso_cedula": uuid_ced,
+                "status": "success" if result.status else "false",
+                "message": result.message,
+                "evaluation_pct": round(evaluacion, 2),
+                "finished_at_utc": flow["finished_at_utc"]
+            }
+            _append_general_index(uuid_proceso, summary_item)
+
+            body = {"status": "success" if result.status else "false", "message": result.message, **result.payload}
+            http_status = 200 if result.status else 422
+            return Response(body, status=http_status)
+
+        except Exception as ex:
+            # Log mínimo de error
+            try:
+                _ensure_dir(FLOW_LOG_DIR)
+                error_log = {
+                    "type": "cedula",
+                    "uuid_proceso_cedula": str(uuid.uuid4()),
+                    "uuid_proceso": uuid_proceso,
+                    "started_at_utc": started_at,
+                    "finished_at_utc": _now_iso(),
+                    "error": str(ex)
+                }
+                _safe_write_json(os.path.join(FLOW_LOG_DIR, f"{error_log['uuid_proceso_cedula']}.txt"), error_log)
+            except Exception:
+                pass
+            return Response({"status": "false", "message": f"Error procesando solicitud: {ex}", "uuidProceso": uuid_proceso, "data": []}, status=500)
+
+
+class ConsultCedulaAPIView(APIView):
+    """
+    GET /api/biometrics/cedula/verify/<uuid_proceso_cedula>[?download=1]
+    Devuelve el JSON guardado en el TXT correspondiente a esa ejecución de cédula.
+    """
+    @swagger_auto_schema(manual_parameters=[download_param])
+    def get(self, request, uuid_proceso_cedula: str):
+        download = str(request.query_params.get("download","")).lower() in ("1","true","yes")
+        path = os.path.join(FLOW_LOG_DIR, f"{uuid_proceso_cedula}.txt")
+        if not os.path.exists(path):
+            return Response({"status":"false","message":"No existe el registro solicitado."}, status=404)
+
+        if download:
+            return FileResponse(open(path,"rb"), as_attachment=True, filename=f"{uuid_proceso_cedula}.txt", content_type="text/plain; charset=utf-8")
+
+        data = _read_json_file(path)
+        payload = data if data is not None else {"uuid_proceso_cedula": uuid_proceso_cedula, "detail": "no disponible"}
+        payload.setdefault("_links", {})
+        payload["_links"]["self"] = request.build_absolute_uri()
+        payload["_links"]["download"] = request.build_absolute_uri() + ("&" if "?" in request.get_full_path() else "?") + "download=1"
+        return Response(payload, status=200)
+
+
+class TraceCedulaProcessAPIView(APIView):
+    """
+    GET /api/biometrics/cedula/trace/<uuidProceso>?offset=0&limit=50&expand=0
+    Lista ejecuciones de cédula del proceso leyendo FLOW_LOG_DIR/*.txt
+    """
+    # Si usas swagger, deja el decorador; si no, quítalo para evitar sorpresas.
+    # @swagger_auto_schema(manual_parameters=[offset_param, limit_param, expand_param])
+    def get(self, request, uuidProceso: str):
+        try:
+            offset = int(request.query_params.get("offset", 0) or 0)
+            limit  = int(request.query_params.get("limit",  50) or 50)
+            expand = str(request.query_params.get("expand","")).lower() in ("1","true","yes")
+
+            items = []
+            if os.path.isdir(FLOW_LOG_DIR):
+                for name in os.listdir(FLOW_LOG_DIR):
+                    if not name.endswith(".txt"):
+                        continue
+                    path = os.path.join(FLOW_LOG_DIR, name)
+                    data = _read_json_file(path)
+                    if not data:
+                        continue
+                    if data.get("type") != "cedula":
+                        continue
+                    if str(data.get("uuid_proceso")) != str(uuidProceso):
+                        continue
+
+                    if expand:
+                        items.append(data)
+                    else:
+                        res = data.get("result") or {}
+                        items.append({
+                            "uuid_proceso_cedula": data.get("uuid_proceso_cedula"),
+                            "status": res.get("status") or data.get("status") or "unknown",
+                            "message": res.get("message") or data.get("message"),
+                            "evaluation_pct": res.get("evaluation_pct"),
+                            "started_at_utc": data.get("started_at_utc"),
+                            "finished_at_utc": data.get("finished_at_utc"),
+                        })
+
+            # Orden y paginación (usa tus helpers existentes)
+            items.sort(key=lambda x: (x.get("finished_at_utc") or ""), reverse=True)
+            sliced = _paginate(items, offset, limit)
+
+            # ✔️ SIEMPRE retornamos Response
+            return Response({"uuidProceso": uuidProceso, **sliced}, status=status.HTTP_200_OK)
+
+        except Exception as ex:
+            # ✔️ SIEMPRE retornamos Response también en error
+            return Response(
+                {"status": "false", "message": f"Error consultando traza: {ex}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
