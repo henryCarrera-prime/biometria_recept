@@ -1,0 +1,13 @@
+{
+  "type": "cedula",
+  "uuid_proceso_cedula": "85c8cf0f-3402-4706-a6c0-ba0312fc72b5",
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+  "started_at_utc": "2025-09-17T21:01:10.678492+00:00",
+  "finished_at_utc": "2025-09-17T21:01:34.594168+00:00",
+  "reference_uri": "s3://enext-server-file/dataset-inicial/",
+  "result": {
+    "status": "false",
+    "message": "Cédula válida",
+    "evaluation_pct": 99.52
+  }
+}

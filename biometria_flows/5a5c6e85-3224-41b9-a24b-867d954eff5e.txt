@@ -1,0 +1,13 @@
+{
+  "type": "cedula",
+  "uuid_proceso_cedula": "5a5c6e85-3224-41b9-a24b-867d954eff5e",
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+  "started_at_utc": "2025-09-17T21:12:00.087839+00:00",
+  "finished_at_utc": "2025-09-17T21:12:16.052005+00:00",
+  "reference_uri": "s3://enext-server-file/dataset-inicial/",
+  "result": {
+    "status": "success",
+    "message": "Cédula válida y rostro coincide con la imagen de referencia.",
+    "evaluation_pct": 99.52
+  }
+}
