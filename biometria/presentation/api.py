@@ -394,7 +394,7 @@ class VerifyCedulaAPIView(APIView):
     {
       "uuidProceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
       "imageBase64": "...",
-      "referenceImageUrl": "s3://.../..."  // opcional si ahora no la usas
+      "referenceImageUrl": "s3://.../..."  // opcional
     }
     """
     @swagger_auto_schema(
@@ -408,15 +408,31 @@ class VerifyCedulaAPIView(APIView):
                 "referenceImageUrl": openapi.Schema(type=openapi.TYPE_STRING),
             },
         ),
-        responses={200: "OK / Unprocessable", 500: "Error"},
+        # 200 OK para éxito y para fallos de negocio. 400/422 solo por request inválido.
+        responses={
+            200: "Processed",
+            400: "Bad Request (faltan parámetros / inválidos)",
+            500: "Error interno",
+        },
     )
     def post(self, request):
-        uuid_proceso = request.data.get("uuidProceso")
-        image_b64    = request.data.get("imageBase64")
-        reference_url= request.data.get("referenceImageUrl")
+        uuid_proceso  = request.data.get("uuidProceso")
+        image_b64     = request.data.get("imageBase64")
+        reference_url = request.data.get("referenceImageUrl")
 
+        # ---- Validación básica del request (400/422 solo aquí) ----
         if not uuid_proceso or not image_b64:
-            return Response({"status": "false", "message": "Parámetros requeridos: uuidProceso, imageBase64"}, status=400)
+            return Response(
+                {"status": False, "message": "Parámetros requeridos: uuidProceso, imageBase64"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # (opcional) valida base64 mínimamente
+        if not isinstance(image_b64, str) or "," not in image_b64:
+            return Response(
+                {"status": False, "message": "imageBase64 inválido (falta prefijo o contenido)"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
 
         service = VerifyEcuadorIdService(
             id_classifier=KerasEcuadorIdClassifier(),
@@ -428,8 +444,9 @@ class VerifyCedulaAPIView(APIView):
         started_at = _now_iso()
         try:
             result = service.execute(uuid_proceso, image_b64, reference_url)
+
             # result.payload: { "uuidProceso": ..., "data": [ { uuid_proceso_cedula, evaluacion } ] }
-            uuid_ced = result.payload["data"][0]["uuid_proceso_cedula"]
+            uuid_ced   = result.payload["data"][0]["uuid_proceso_cedula"]
             evaluacion = float(result.payload["data"][0]["evaluacion"])
 
             # -------- Guardar flujo CÉDULA en TXT (JSON) --------
@@ -444,26 +461,33 @@ class VerifyCedulaAPIView(APIView):
                 "result": {
                     "status": "success" if result.status else "false",
                     "message": result.message,
-                    "evaluation_pct": round(evaluacion, 2)
-                }
+                    "evaluation_pct": round(evaluacion, 2),
+                },
             }
             log_path = os.path.join(FLOW_LOG_DIR, f"{uuid_ced}.txt")
             _safe_write_json(log_path, flow)
 
-            # -------- Actualizar índice general del proceso (opcional pero consistente) --------
+            # -------- Actualizar índice general del proceso --------
             summary_item = {
                 "type": "cedula",
                 "uuid_proceso_cedula": uuid_ced,
                 "status": "success" if result.status else "false",
                 "message": result.message,
                 "evaluation_pct": round(evaluacion, 2),
-                "finished_at_utc": flow["finished_at_utc"]
+                "finished_at_utc": flow["finished_at_utc"],
             }
             _append_general_index(uuid_proceso, summary_item)
 
-            body = {"status": "success" if result.status else "false", "message": result.message, **result.payload}
-            http_status = 200 if result.status else 422
-            return Response(body, status=http_status)
+            # -------- Respuesta HTTP (200 para negocio, boolean en status) --------
+            body = {
+                "status": bool(result.status),
+                "message": result.message,
+                "uuidProceso": result.payload.get("uuidProceso"),
+                "data": result.payload.get("data"),
+                # Si quieres exponer diagnósticos SOLO en dev:
+                # "diagnostics": result.diagnostics,
+            }
+            return Response(body, status=status.HTTP_200_OK)
 
         except Exception as ex:
             # Log mínimo de error
@@ -475,12 +499,21 @@ class VerifyCedulaAPIView(APIView):
                     "uuid_proceso": uuid_proceso,
                     "started_at_utc": started_at,
                     "finished_at_utc": _now_iso(),
-                    "error": str(ex)
+                    "error": str(ex),
                 }
                 _safe_write_json(os.path.join(FLOW_LOG_DIR, f"{error_log['uuid_proceso_cedula']}.txt"), error_log)
             except Exception:
                 pass
-            return Response({"status": "false", "message": f"Error procesando solicitud: {ex}", "uuidProceso": uuid_proceso, "data": []}, status=500)
+
+            return Response(
+                {
+                    "status": False,
+                    "message": f"Error procesando solicitud: {ex}",
+                    "uuidProceso": uuid_proceso,
+                    "data": [],
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class ConsultCedulaAPIView(APIView):

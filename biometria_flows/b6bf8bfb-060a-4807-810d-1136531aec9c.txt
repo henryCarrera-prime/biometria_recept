@@ -1,0 +1,13 @@
+{
+  "type": "cedula",
+  "uuid_proceso_cedula": "b6bf8bfb-060a-4807-810d-1136531aec9c",
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+  "started_at_utc": "2025-09-18T16:47:51.617952+00:00",
+  "finished_at_utc": "2025-09-18T16:48:03.714771+00:00",
+  "reference_uri": "s3://enext-server-file/dataset-inicial/",
+  "result": {
+    "status": "false",
+    "message": "La imagen NO corresponde a una cédula válida (el modelo no pudo determinar una clase de cédula).",
+    "evaluation_pct": 50.0
+  }
+}
