@@ -1,7 +1,71 @@
 {
   "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
-  "count": 12,
+  "count": 20,
   "items": [
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "284d85b2-c11e-4c09-b992-cdb7af35b218",
+      "status": "false",
+      "message": "La imagen NO corresponde a una cédula válida: label 5 no está en [0, 1, 2].",
+      "evaluation_pct": 0.0,
+      "finished_at_utc": "2025-09-19T02:23:33.565720+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "31db324e-68d2-4d5c-a509-2cc7e2773116",
+      "status": "success",
+      "message": "Cédula válida y rostro coincide con la imagen de referencia.",
+      "evaluation_pct": 100.0,
+      "finished_at_utc": "2025-09-19T02:17:54.291960+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "d0d54365-9cbf-4535-a2f7-9b578d6979f0",
+      "status": "success",
+      "message": "Cédula válida y rostro coincide con la imagen de referencia.",
+      "evaluation_pct": 100.0,
+      "finished_at_utc": "2025-09-19T02:08:43.425430+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "83582142-b326-485a-a057-44be2b7f4720",
+      "status": "success",
+      "message": "Cédula válida y rostro coincide con la imagen de referencia.",
+      "evaluation_pct": 99.52,
+      "finished_at_utc": "2025-09-19T02:07:13.262930+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "93d83ad6-53f5-4a7b-a05d-85d1576da582",
+      "status": "false",
+      "message": "La imagen NO corresponde a una cédula válida (el modelo no pudo determinar una clase de cédula).",
+      "evaluation_pct": 0.0,
+      "finished_at_utc": "2025-09-19T01:46:54.309919+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "225c49c7-e17a-454e-9d47-909a75d78958",
+      "status": "false",
+      "message": "La imagen NO corresponde a una cédula válida (el modelo no pudo determinar una clase de cédula).",
+      "evaluation_pct": 0.0,
+      "finished_at_utc": "2025-09-19T01:43:11.898113+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "5275d535-a304-4a7c-b5d4-a7d7f9fdd996",
+      "status": "false",
+      "message": "La imagen NO corresponde a una cédula válida (el modelo no pudo determinar una clase de cédula).",
+      "evaluation_pct": 0.0,
+      "finished_at_utc": "2025-09-19T01:41:54.277127+00:00"
+    },
+    {
+      "type": "cedula",
+      "uuid_proceso_cedula": "54530462-3786-49d5-af1e-a045b58eef93",
+      "status": "false",
+      "message": "La imagen NO corresponde a una cédula válida (el modelo no pudo determinar una clase de cédula).",
+      "evaluation_pct": 0.0,
+      "finished_at_utc": "2025-09-19T01:37:35.316054+00:00"
+    },
     {
       "type": "cedula",
       "uuid_proceso_cedula": "8fe61644-45d7-42bf-abb1-ea1c8fcf344f",

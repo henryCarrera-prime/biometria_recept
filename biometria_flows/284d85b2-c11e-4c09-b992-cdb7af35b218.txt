@@ -1,0 +1,13 @@
+{
+  "type": "cedula",
+  "uuid_proceso_cedula": "284d85b2-c11e-4c09-b992-cdb7af35b218",
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+  "started_at_utc": "2025-09-19T02:23:23.775935+00:00",
+  "finished_at_utc": "2025-09-19T02:23:33.565720+00:00",
+  "reference_uri": "s3://enext-server-file/dataset-inicial/",
+  "result": {
+    "status": "false",
+    "message": "La imagen NO corresponde a una cédula válida: label 5 no está en [0, 1, 2].",
+    "evaluation_pct": 0.0
+  }
+}

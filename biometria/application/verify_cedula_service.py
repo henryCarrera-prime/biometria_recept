@@ -35,11 +35,21 @@ def _env_int_list(var: str, default: Iterable[int]) -> set[int]:
             out.add(int(m.group(0)))
     return out
 
+# NUEVO: helper booleano para flags de política
+def _env_bool(var: str, default: bool) -> bool:
+    v = str(os.getenv(var, str(default))).strip().lower()
+    return v in ("1", "true", "t", "yes", "y", "si", "sí")
+
 EVALUATION_THRESHOLD = _env_float("ECU_ID_EVALUATION_THRESHOLD", 95.0)
 # Umbral mínimo del score del modelo (0..1)
 ECU_ID_THRESHOLD = _env_float("ECU_ID_THRESHOLD", 0.85)
-# Índices del modelo que se consideran "cédula aprobada"
-POSITIVE_LABELS = _env_int_list("ECU_ID_POSITIVE_LABELS", default=[1, 2, 3])
+
+# 🔧 CORREGIDO: por defecto 0,1,2 son cédulas válidas
+POSITIVE_LABELS = _env_int_list("ECU_ID_POSITIVE_LABELS", default=[0, 1, 2])
+
+# Políticas: ignora flag interno del modelo y permite sin label si score es alto
+ECU_ID_IGNORE_MODEL_FLAG = _env_bool("ECU_ID_IGNORE_MODEL_FLAG", True)
+ALLOW_NO_LABEL_IF_SCORE_OK = _env_bool("ECU_ID_ALLOW_NO_LABEL_IF_SCORE_OK", True)
 
 # Si algún día quieres volver a comparar por rostro, cambia a 'face'
 COMPARE_MODE = os.getenv("ECU_ID_COMPARE_MODE", "full").lower()  # 'full' | 'face'
@@ -132,17 +142,24 @@ class VerifyEcuadorIdService:
         is_valid_id_raw, id_score = self.id_classifier.is_valid_ec_id(id_img_bgr)
         id_score_pct = float(id_score) * 100.0
 
-        # 1.1) Label predicho (OBLIGATORIO) y permitidos desde ENV
+        # 1.1) Label predicho (OBLIGATORIO/OPCIONAL según política) y permitidos desde ENV
         predicted_label = _try_get_predicted_label(self.id_classifier, id_img_bgr)
-        label_ok = (predicted_label is not None) and (predicted_label in POSITIVE_LABELS)
+
+        # 🔧 Política de label: acepta 0/1/2; opcionalmente permite "sin label" si el score es alto
+        label_ok = (
+            (predicted_label is not None and predicted_label in POSITIVE_LABELS)
+            or (ALLOW_NO_LABEL_IF_SCORE_OK and predicted_label is None and id_score >= ECU_ID_THRESHOLD)
+        )
         score_ok = (id_score >= ECU_ID_THRESHOLD)
 
-        # Cédula válida final: modelo OK AND label permitido AND score suficiente
-        is_valid_id_final = bool(is_valid_id_raw and label_ok and score_ok)
+        # 🔧 Política de decisión final: puedes ignorar el flag interno del modelo
+        if ECU_ID_IGNORE_MODEL_FLAG:
+            is_valid_id_final = bool(label_ok and score_ok)
+        else:
+            is_valid_id_final = bool(is_valid_id_raw and label_ok and score_ok)
 
-        # --- EARLY RETURN para ahorrar costo: si NO es cédula, NO llamamos a Rekognition ---
+        # --- EARLY RETURN: si NO es cédula, NO llamamos a Rekognition ---
         if not is_valid_id_final:
-            # Intento de detección solo para diagnóstico (no afecta respuesta)
             diag = {
                 "id_score_pct": round(id_score_pct, 2),
                 "similarity_pct": None,  # NO calculada
@@ -168,21 +185,28 @@ class VerifyEcuadorIdService:
             except Exception:
                 pass
 
-            # Mensaje preciso de por qué no es cédula
-            if predicted_label is None:
+            # 🔧 Mensajes claros por causa
+            if predicted_label is None and not ALLOW_NO_LABEL_IF_SCORE_OK:
                 diag["failure_reason"] = "no_label"
-                message = "La imagen NO corresponde a una cédula válida (el modelo no pudo determinar una clase de cédula)."
-            elif not label_ok:
+                message = ("La imagen NO corresponde a una cédula válida: el modelo no devolvió etiqueta "
+                           "y la política actual exige etiqueta (ajusta ALLOW_NO_LABEL_IF_SCORE_OK).")
+            elif predicted_label is None and ALLOW_NO_LABEL_IF_SCORE_OK and not score_ok:
+                diag["failure_reason"] = "no_label_but_low_score"
+                message = (f"La imagen NO corresponde a una cédula válida: sin etiqueta y score {id_score:.3f} "
+                           f"< umbral {ECU_ID_THRESHOLD:.3f}.")
+            elif (predicted_label is not None) and (predicted_label not in POSITIVE_LABELS):
                 diag["failure_reason"] = "label_not_allowed"
-                message = f"La imagen NO corresponde a una cédula válida: label {predicted_label} no está en {sorted(list(POSITIVE_LABELS))}."
+                message = (f"La imagen NO corresponde a una cédula válida: label {predicted_label} "
+                           f"no está en {sorted(list(POSITIVE_LABELS))}.")
             elif not score_ok:
                 diag["failure_reason"] = "low_model_score"
-                message = f"La imagen NO corresponde a una cédula válida: score del modelo {id_score:.3f} < umbral {ECU_ID_THRESHOLD:.3f}."
+                message = (f"La imagen NO corresponde a una cédula válida: score del modelo {id_score:.3f} "
+                           f"< umbral {ECU_ID_THRESHOLD:.3f}.")
             else:
                 diag["failure_reason"] = "invalid_id_generic"
                 message = "La imagen NO corresponde a una cédula válida."
 
-            # Evaluación informativa SOLO del componente del modelo (no hay similitud)
+            # Evaluación informativa SOLO del componente del modelo (si quieres, puedes dejar id_score_pct)
             evaluacion = 0.0
 
             return EcuadorIdVerificationResponse(
@@ -259,16 +283,16 @@ class VerifyEcuadorIdService:
         except Exception:
             pass
 
-        # 4) Similaridad (0..100) — ahora sí consume AWS Rekognition
+        # 4) Similaridad (0..100)
         try:
             similarity_pct = float(self.similarity.compare(id_img_bgr, ref_img))
         except Exception:
             similarity_pct = 0.0
         diag["similarity_pct"] = round(similarity_pct, 2)
 
-        # 5) Evaluación final (promedio) y regla de éxito
-        evaluacion = (id_score_pct + similarity_pct) / 2.0
-        passed = (evaluacion > EVALUATION_THRESHOLD)
+        # 5) Evaluación final (promedio) y regla de éxito (umbral inclusivo)
+        evaluacion = round((id_score_pct + similarity_pct) / 2.0, 2)
+        passed = (evaluacion >= EVALUATION_THRESHOLD)
 
         message = (
             "Cédula válida y rostro coincide con la imagen de referencia."
@@ -281,7 +305,7 @@ class VerifyEcuadorIdService:
             message=message,
             payload={
                 "uuidProceso": uuid_proceso,
-                "data": [{"uuid_proceso_cedula": uuid_proceso_cedula, "evaluacion": round(evaluacion, 2)}],
+                "data": [{"uuid_proceso_cedula": uuid_proceso_cedula, "evaluacion": evaluacion}],
             },
             diagnostics=diag,
         )

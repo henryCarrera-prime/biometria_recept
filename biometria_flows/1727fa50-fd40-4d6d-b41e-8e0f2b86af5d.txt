@@ -1,0 +1,8 @@
+{
+  "type": "cedula",
+  "uuid_proceso_cedula": "1727fa50-fd40-4d6d-b41e-8e0f2b86af5d",
+  "uuid_proceso": "04205d9c-1439-4a6e-a06c-21012a4ea",
+  "started_at_utc": "2025-09-19T01:43:01.359029+00:00",
+  "finished_at_utc": "2025-09-19T01:43:01.851283+00:00",
+  "error": "OpenCV(4.12.0) D:\\a\\opencv-python\\opencv-python\\opencv\\modules\\imgcodecs\\src\\loadsave.cpp:1266: error: (-215:Assertion failed) !buf.empty() in function 'cv::imdecode_'\n"
+}
