@@ -59,7 +59,13 @@ SECRET_KEY = 'django-insecure-90owbjbi)s6%n*&9e69tw_g#oguy-*vb!no^swty3_$b5n5as2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'biometria.test-develop.online',
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '*'
+]
 # print("AWS_REGION=", os.getenv("AWS_REGION"))
 # print("AWS_ACCESS_KEY_ID=", os.getenv("AWS_ACCESS_KEY_ID"))
 # print("AWS_SECRET_ACCESS_KEY=", os.getenv("AWS_SECRET_ACCESS_KEY"))

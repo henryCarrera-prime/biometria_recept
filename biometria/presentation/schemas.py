@@ -75,3 +75,25 @@ class TraceResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField()
     items = TraceItemSerializer(many=True)
     page = PageMetaSerializer()
+
+# ---------- Demo Validation (POST) ----------
+class DemoValidationRequestSerializer(serializers.Serializer):
+    uuidProceso = serializers.UUIDField(help_text="UUID del proceso general.")
+    cedulaFrontalBase64 = serializers.CharField(help_text="Imagen de la cédula frontal en base64.")
+    rostroPersonaBase64 = serializers.CharField(help_text="Imagen del rostro de la persona en base64.")
+
+class DemoValidationResponseItemSerializer(serializers.Serializer):
+    uuid_validation = serializers.UUIDField()
+    evaluacion = serializers.FloatField()
+    cedula_valida = serializers.BooleanField()
+    liveness_detectado = serializers.BooleanField()
+    rostros_coinciden = serializers.BooleanField()
+    score_cedula = serializers.FloatField()
+    score_liveness = serializers.FloatField()
+    score_similarity = serializers.FloatField()
+
+class DemoValidationResponseSerializer(serializers.Serializer):
+    status = serializers.BooleanField()
+    message = serializers.CharField()
+    uuidProceso = serializers.UUIDField()
+    data = DemoValidationResponseItemSerializer(many=True)

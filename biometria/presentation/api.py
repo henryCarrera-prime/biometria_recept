@@ -15,11 +15,16 @@ from .schemas import (
     BiometricsVerifyRequestSerializer,
     BiometricsVerifyResponseSerializer,
     BiometricsFlowSerializer,
-    TraceResponseSerializer
+    TraceResponseSerializer,
+    DemoValidationRequestSerializer,
+    DemoValidationResponseSerializer
 )
 from biometria.application.verify_cedula_service import VerifyEcuadorIdService
+from biometria.application.demo_validation_service import DemoValidationService
 from biometria.infrastructure.classifier.keras_cedula_classifier import KerasEcuadorIdClassifier
 from biometria.infrastructure.detection.rekognation_face_detector import RekognitionFaceDetector
+from biometria.infrastructure.liveness.luxand_client import LuxandClient
+from biometria.infrastructure.similarity.rekognition_adapter import RekognitionMatcher
 
 
 
@@ -590,5 +595,156 @@ class TraceCedulaProcessAPIView(APIView):
             # ✔️ SIEMPRE retornamos Response también en error
             return Response(
                 {"status": "false", "message": f"Error consultando traza: {ex}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+# ---------- Demo Validation Service ----------
+class DemoValidationAPIView(APIView):
+    """
+    POST /api/biometrics/demo_validation_service
+    
+    Body:
+    {
+      "uuidProceso": "04205d9c-1439-4a6e-a06c-21012a4ea744",
+      "cedulaFrontalBase64": "data:image/jpeg;base64,...",
+      "rostroPersonaBase64": "data:image/jpeg;base64,..."
+    }
+    """
+    @swagger_auto_schema(
+        operation_summary="Servicio de validación demo",
+        operation_description=(
+            "Valida cédula frontal, liveness del rostro y similitud entre rostros.\n\n"
+            "- Verifica si la cédula es válida usando el clasificador\n"
+            "- Detecta señales de vida en el rostro de la persona\n"
+            "- Compara el rostro de la cédula con el rostro de la persona\n"
+            "- Retorna JSON con puntos de referencia y porcentajes de comparación"
+        ),
+        request_body=DemoValidationRequestSerializer,
+        responses={200: DemoValidationResponseSerializer},
+        tags=["Biometría"]
+    )
+    def post(self, request):
+        uuid_proceso = request.data.get("uuidProceso")
+        cedula_frontal_b64 = request.data.get("cedulaFrontalBase64")
+        rostro_persona_b64 = request.data.get("rostroPersonaBase64")
+
+        # Validación básica
+        if not uuid_proceso or not cedula_frontal_b64 or not rostro_persona_b64:
+            return Response(
+                {
+                    "status": False,
+                    "message": "Parámetros requeridos: uuidProceso, cedulaFrontalBase64, rostroPersonaBase64",
+                    "uuidProceso": uuid_proceso or "",
+                    "data": []
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar formato base64
+        if not isinstance(cedula_frontal_b64, str) or "," not in cedula_frontal_b64:
+            return Response(
+                {
+                    "status": False,
+                    "message": "cedulaFrontalBase64 inválido (falta prefijo o contenido)",
+                    "uuidProceso": uuid_proceso,
+                    "data": []
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        if not isinstance(rostro_persona_b64, str) or "," not in rostro_persona_b64:
+            return Response(
+                {
+                    "status": False,
+                    "message": "rostroPersonaBase64 inválido (falta prefijo o contenido)",
+                    "uuidProceso": uuid_proceso,
+                    "data": []
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        # Inicializar servicios
+        service = DemoValidationService(
+            id_classifier=KerasEcuadorIdClassifier(),
+            face_detector=RekognitionFaceDetector(),
+            liveness_detector=LuxandClient(),
+            similarity_matcher=RekognitionMatcher(),
+        )
+
+        started_at = _now_iso()
+        try:
+            result = service.execute(uuid_proceso, cedula_frontal_b64, rostro_persona_b64)
+
+            # Guardar flujo en TXT para auditoría
+            _ensure_dir(FLOW_LOG_DIR)
+            flow = {
+                "type": "demo_validation",
+                "uuid_validation": result.payload["data"][0]["uuid_validation"],
+                "uuid_proceso": uuid_proceso,
+                "started_at_utc": started_at,
+                "finished_at_utc": _now_iso(),
+                "result": {
+                    "status": "success" if result.status else "false",
+                    "message": result.message,
+                    "evaluation_pct": result.payload["data"][0]["evaluacion"],
+                    "cedula_valida": result.payload["data"][0]["cedula_valida"],
+                    "liveness_detectado": result.payload["data"][0]["liveness_detectado"],
+                    "rostros_coinciden": result.payload["data"][0]["rostros_coinciden"],
+                    "score_cedula": result.payload["data"][0]["score_cedula"],
+                    "score_liveness": result.payload["data"][0]["score_liveness"],
+                    "score_similarity": result.payload["data"][0]["score_similarity"]
+                },
+                "diagnostics": result.diagnostics
+            }
+            log_path = os.path.join(FLOW_LOG_DIR, f"{result.payload['data'][0]['uuid_validation']}.txt")
+            _safe_write_json(log_path, flow)
+
+            # Actualizar índice general del proceso
+            summary_item = {
+                "type": "demo_validation",
+                "uuid_validation": result.payload["data"][0]["uuid_validation"],
+                "status": "success" if result.status else "false",
+                "message": result.message,
+                "evaluation_pct": result.payload["data"][0]["evaluacion"],
+                "cedula_valida": result.payload["data"][0]["cedula_valida"],
+                "liveness_detectado": result.payload["data"][0]["liveness_detectado"],
+                "rostros_coinciden": result.payload["data"][0]["rostros_coinciden"],
+                "finished_at_utc": flow["finished_at_utc"],
+            }
+            _append_general_index(uuid_proceso, summary_item)
+
+            # Respuesta HTTP
+            return Response({
+                "status": bool(result.status),
+                "message": result.message,
+                "uuidProceso": result.payload.get("uuidProceso"),
+                "data": result.payload.get("data"),
+                # Incluir diagnósticos para información detallada
+                "diagnostics": result.diagnostics
+            }, status=status.HTTP_200_OK)
+
+        except Exception as ex:
+            # Log de error
+            try:
+                _ensure_dir(FLOW_LOG_DIR)
+                error_log = {
+                    "type": "demo_validation",
+                    "uuid_validation": str(uuid.uuid4()),
+                    "uuid_proceso": uuid_proceso,
+                    "started_at_utc": started_at,
+                    "finished_at_utc": _now_iso(),
+                    "error": str(ex),
+                }
+                _safe_write_json(os.path.join(FLOW_LOG_DIR, f"{error_log['uuid_validation']}.txt"), error_log)
+            except Exception:
+                pass
+
+            return Response(
+                {
+                    "status": False,
+                    "message": f"Error procesando validación demo: {ex}",
+                    "uuidProceso": uuid_proceso,
+                    "data": [],
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
