@@ -48,7 +48,7 @@ class DemoValidationService:
     """
     Servicio que valida:
     1. Si la imagen de la cédula es una cédula válida
-    2. Si el rostro de la persona tiene señales de vida (liveness)
+    2. Si el rostro de la persona tiene señales de vida (liveness) - SOLO en rostroPersonaBase64
     3. Si el rostro de la cédula y el rostro de la persona coinciden
     """
     
@@ -152,12 +152,14 @@ class DemoValidationService:
                 }
             })
             
-            # 4. Verificar liveness en rostro de persona
+            # 4. Verificar liveness SOLO en rostro de persona (no en cédula)
             liveness_score = 0.0
             liveness_ok = False
             
             if face_rostro_bbox:
                 try:
+                    # Usar la imagen completa del rostro para liveness para mejor calidad
+                    # El recorte puede ser muy pequeño (280x395) y causar problemas con Luxand
                     liveness_score = float(self.liveness_detector.score(rostro_img))
                     liveness_ok = liveness_score > 0.7  # Umbral ajustable
                 except Exception as e:
