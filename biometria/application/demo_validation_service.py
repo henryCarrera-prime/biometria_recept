@@ -158,12 +158,41 @@ class DemoValidationService:
             
             if face_rostro_bbox:
                 try:
-                    # Usar la imagen completa del rostro para liveness para mejor calidad
-                    # El recorte puede ser muy pequeño (280x395) y causar problemas con Luxand
-                    liveness_score = float(self.liveness_detector.score(rostro_img))
+                    # Verificar el tamaño de la imagen y usar la mejor opción para liveness
+                    H_rostro, W_rostro = rostro_img.shape[:2]
+                    
+                    # Si la imagen completa es demasiado pequeña (< 400px en lado corto), usar un enfoque alternativo
+                    min_dimension = min(H_rostro, W_rostro)
+                    if min_dimension < 400:
+                        logger.warning(f"Imagen de rostro muy pequeña: {W_rostro}x{H_rostro}. Intentando mejorar calidad...")
+                        
+                        # Intentar usar el recorte del rostro pero redimensionado
+                        x1, y1, x2, y2 = face_rostro_bbox
+                        face_crop = rostro_img[y1:y2, x1:x2]
+                        
+                        # Redimensionar el recorte para mejorar la calidad
+                        scale_factor = 400.0 / min(face_crop.shape[:2])
+                        new_width = int(face_crop.shape[1] * scale_factor)
+                        new_height = int(face_crop.shape[0] * scale_factor)
+                        resized_crop = cv2.resize(face_crop, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+                        
+                        liveness_score = float(self.liveness_detector.score(resized_crop))
+                    else:
+                        # Usar imagen completa si tiene suficiente tamaño
+                        liveness_score = float(self.liveness_detector.score(rostro_img))
+                    
                     liveness_ok = liveness_score > 0.7  # Umbral ajustable
+                    logger.info(f"Liveness score obtenido: {liveness_score}, OK: {liveness_ok}")
+                    
                 except Exception as e:
                     logger.error(f"Error en liveness detection: {e}")
+                    # En caso de error, intentar con la imagen completa como fallback
+                    try:
+                        liveness_score = float(self.liveness_detector.score(rostro_img))
+                        liveness_ok = liveness_score > 0.7
+                        logger.info(f"Liveness fallback score: {liveness_score}")
+                    except Exception as fallback_error:
+                        logger.error(f"Error en fallback liveness: {fallback_error}")
             
             diagnostics.update({
                 "liveness": {
