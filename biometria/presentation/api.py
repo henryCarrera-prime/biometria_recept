@@ -677,26 +677,31 @@ class DemoValidationAPIView(APIView):
 
             # Guardar flujo en TXT para auditoría
             _ensure_dir(FLOW_LOG_DIR)
+            
+            # Obtener datos del payload con valores por defecto para evitar KeyError
+            data_item = result.payload.get("data", [{}])[0] if result.payload.get("data") else {}
+            uuid_validation = data_item.get("uuid_validation", str(uuid.uuid4()))
+            
             flow = {
                 "type": "demo_validation",
-                "uuid_validation": result.payload["data"][0]["uuid_validation"],
+                "uuid_validation": uuid_validation,
                 "uuid_proceso": uuid_proceso,
                 "started_at_utc": started_at,
                 "finished_at_utc": _now_iso(),
                 "result": {
                     "status": "success" if result.status else "false",
                     "message": result.message,
-                    "evaluation_pct": result.payload["data"][0]["evaluacion"],
-                    "cedula_valida": result.payload["data"][0]["cedula_valida"],
-                    "liveness_detectado": result.payload["data"][0]["liveness_detectado"],
-                    "rostros_coinciden": result.payload["data"][0]["rostros_coinciden"],
-                    "score_cedula": result.payload["data"][0]["score_cedula"],
-                    "score_liveness": result.payload["data"][0]["score_liveness"],
-                    "score_similarity": result.payload["data"][0]["score_similarity"]
+                    "evaluation_pct": data_item.get("evaluacion", 0.0),
+                    "cedula_valida": data_item.get("cedula_valida", False),
+                    "liveness_detectado": data_item.get("liveness_detectado", False),
+                    "rostros_coinciden": data_item.get("rostros_coinciden", False),
+                    "score_cedula": data_item.get("score_cedula", 0.0),
+                    "score_liveness": data_item.get("score_liveness", 0.0),
+                    "score_similarity": data_item.get("score_similarity", 0.0)
                 },
                 "diagnostics": result.diagnostics
             }
-            log_path = os.path.join(FLOW_LOG_DIR, f"{result.payload['data'][0]['uuid_validation']}.txt")
+            log_path = os.path.join(FLOW_LOG_DIR, f"{uuid_validation}.txt")
             _safe_write_json(log_path, flow)
 
             # Actualizar índice general del proceso

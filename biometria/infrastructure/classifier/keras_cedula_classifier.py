@@ -2,8 +2,10 @@
 import os, threading, numpy as np, cv2
 import tensorflow as tf
 import re
+import logging
 from typing import Optional, Tuple
 
+logger = logging.getLogger("biometria.verify")
 _model = None
 _model_lock = threading.Lock()
 
@@ -43,8 +45,31 @@ def _get_model():
     if _model is None:
         with _model_lock:
             if _model is None:
-                path = os.getenv("ECU_ID_MODEL_PATH", "/app/models/keras_model.h5")
-                _model = _load_tf_model(path)
+                # Usar ruta relativa al directorio del proyecto
+                default_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "models", "keras_model.h5")
+                path = os.getenv("ECU_ID_MODEL_PATH", default_path)
+                logger.info(f"Cargando modelo Keras desde: {path}")
+                
+                # Verificar si el archivo existe
+                if not os.path.exists(path):
+                    logger.warning(f"Archivo de modelo no encontrado en: {path}")
+                    logger.info("Usando modo fallback sin modelo Keras")
+                    _model = None
+                    return _model
+                
+                try:
+                    _model = _load_tf_model(path)
+                    # Log información del modelo cargado
+                    if hasattr(_model, 'inputs'):
+                        logger.info(f"Modelo cargado - Entradas: {len(_model.inputs)}, Salidas: {len(_model.outputs)}")
+                        for i, inp in enumerate(_model.inputs):
+                            logger.info(f"  Input {i}: {inp.shape}")
+                    else:
+                        logger.warning("Modelo cargado pero no tiene atributo 'inputs'")
+                except Exception as e:
+                    logger.error(f"No se pudo cargar el modelo desde {path}. Error: {e}")
+                    logger.info("Usando modo fallback sin modelo Keras")
+                    _model = None
     return _model
 
 class KerasEcuadorIdClassifier:
@@ -71,15 +96,31 @@ class KerasEcuadorIdClassifier:
 
     def _infer(self, image_bgr: np.ndarray) -> np.ndarray:
         model = _get_model()
-        y = model.predict(self._prep(image_bgr), verbose=0).squeeze()
-        # Binario: escalar | Multiclase: vector softmax
-        if np.ndim(y) == 0:
-            probs = np.array([1.0 - float(y), float(y)], dtype=np.float32)
-        else:
-            probs = np.array(y, dtype=np.float32)
-        self._last_probs = probs
-        self._last_label = int(np.argmax(probs))
-        return probs
+        if model is None:
+            # Modo fallback: devolver probabilidades que indican cédula no válida
+            logger.warning("Modelo Keras no disponible, usando modo fallback")
+            probs = np.array([1.0, 0.0], dtype=np.float32)  # [probabilidad de no válido, probabilidad de válido]
+            self._last_probs = probs
+            self._last_label = 0
+            return probs
+        
+        try:
+            y = model.predict(self._prep(image_bgr), verbose=0).squeeze()
+            # Binario: escalar | Multiclase: vector softmax
+            if np.ndim(y) == 0:
+                probs = np.array([1.0 - float(y), float(y)], dtype=np.float32)
+            else:
+                probs = np.array(y, dtype=np.float32)
+            self._last_probs = probs
+            self._last_label = int(np.argmax(probs))
+            return probs
+        except Exception as e:
+            logger.error(f"Error en inferencia del modelo Keras: {e}")
+            # Devolver probabilidades por defecto: [1.0, 0.0] para que is_valid_ec_id devuelva False
+            probs = np.array([1.0, 0.0], dtype=np.float32)
+            self._last_probs = probs
+            self._last_label = 0
+            return probs
 
     def is_valid_ec_id(self, image_bgr: np.ndarray) -> tuple[bool, float]:
         probs = self._infer(image_bgr)
