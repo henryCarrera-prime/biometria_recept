@@ -66,6 +66,23 @@ ALLOWED_HOSTS = [
     '0.0.0.0',
     '*'
 ]
+
+# Configuración para HTTPS
+USE_HTTPS = os.getenv('USE_HTTPS', 'False').lower() == 'true'
+
+if USE_HTTPS:
+    # Configuración de seguridad para HTTPS
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 año
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+
 # print("AWS_REGION=", os.getenv("AWS_REGION"))
 # print("AWS_ACCESS_KEY_ID=", os.getenv("AWS_ACCESS_KEY_ID"))
 # print("AWS_SECRET_ACCESS_KEY=", os.getenv("AWS_SECRET_ACCESS_KEY"))
