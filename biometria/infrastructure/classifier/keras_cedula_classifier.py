@@ -59,15 +59,31 @@ def _get_model():
                 
                 try:
                     _model = _load_tf_model(path)
-                    # Log información del modelo cargado
+                    # Log información detallada del modelo cargado
+                    logger.info("=== INFORMACIÓN DEL MODELO CARGADO ===")
                     if hasattr(_model, 'inputs'):
-                        logger.info(f"Modelo cargado - Entradas: {len(_model.inputs)}, Salidas: {len(_model.outputs)}")
+                        logger.info(f"Entradas: {len(_model.inputs)}")
                         for i, inp in enumerate(_model.inputs):
-                            logger.info(f"  Input {i}: {inp.shape}")
+                            logger.info(f"  Input {i}: {inp.shape} (dtype: {inp.dtype})")
                     else:
                         logger.warning("Modelo cargado pero no tiene atributo 'inputs'")
+                    
+                    if hasattr(_model, 'outputs'):
+                        logger.info(f"Salidas: {len(_model.outputs)}")
+                        for i, out in enumerate(_model.outputs):
+                            logger.info(f"  Output {i}: {out.shape} (dtype: {out.dtype})")
+                    
+                    if hasattr(_model, 'input_shape'):
+                        logger.info(f"Input shape: {_model.input_shape}")
+                    
+                    if hasattr(_model, 'summary'):
+                        # Log resumen del modelo (solo estructura básica)
+                        logger.info("Resumen del modelo:")
+                        _model.summary(print_fn=lambda x: logger.info(f"  {x}"))
+                    
+                    logger.info("=== FIN INFORMACIÓN DEL MODELO ===")
                 except Exception as e:
-                    logger.error(f"No se pudo cargar el modelo desde {path}. Error: {e}")
+                    logger.error(f"No se pudo cargar el modelo desde {path}. Error: {e}", exc_info=True)
                     logger.info("Usando modo fallback sin modelo Keras")
                     _model = None
     return _model
@@ -89,12 +105,18 @@ class KerasEcuadorIdClassifier:
         self._last_label: Optional[int] = None
 
     def _prep(self, img_bgr: np.ndarray) -> np.ndarray:
+        logger.info(f"Preparando imagen - tamaño original: {img_bgr.shape}")
         img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        logger.info(f"Tamaño objetivo del modelo: {self.size}")
         img = cv2.resize(img, self.size, interpolation=cv2.INTER_AREA)
+        logger.info(f"Imagen redimensionada: {img.shape}")
         img = img.astype("float32") / 255.0
-        return np.expand_dims(img, axis=0)  # (1,H,W,3)
+        result = np.expand_dims(img, axis=0)  # (1,H,W,3)
+        logger.info(f"Tensor final para modelo: {result.shape}")
+        return result
 
     def _infer(self, image_bgr: np.ndarray) -> np.ndarray:
+        logger.info(f"Iniciando inferencia - imagen de entrada: {image_bgr.shape}")
         model = _get_model()
         if model is None:
             # Modo fallback: devolver probabilidades que indican cédula no válida
@@ -105,17 +127,34 @@ class KerasEcuadorIdClassifier:
             return probs
         
         try:
-            y = model.predict(self._prep(image_bgr), verbose=0).squeeze()
+            # Preparar la imagen para el modelo
+            input_tensor = self._prep(image_bgr)
+            logger.info(f"Tensor de entrada para predict: {input_tensor.shape}")
+            
+            # Verificar las dimensiones esperadas por el modelo
+            if hasattr(model, 'input_shape'):
+                logger.info(f"Modelo espera input_shape: {model.input_shape}")
+            if hasattr(model, 'inputs') and model.inputs:
+                for i, inp in enumerate(model.inputs):
+                    logger.info(f"Input {i} del modelo: {inp.shape}")
+            
+            # Realizar la predicción
+            y = model.predict(input_tensor, verbose=0).squeeze()
+            logger.info(f"Resultado de la predicción: {y}, tipo: {type(y)}, dims: {np.ndim(y)}")
+            
             # Binario: escalar | Multiclase: vector softmax
             if np.ndim(y) == 0:
                 probs = np.array([1.0 - float(y), float(y)], dtype=np.float32)
             else:
                 probs = np.array(y, dtype=np.float32)
+            
+            logger.info(f"Probabilidades finales: {probs}")
             self._last_probs = probs
             self._last_label = int(np.argmax(probs))
+            logger.info(f"Label predicho: {self._last_label}")
             return probs
         except Exception as e:
-            logger.error(f"Error en inferencia del modelo Keras: {e}")
+            logger.error(f"Error en inferencia del modelo Keras: {e}", exc_info=True)
             # Devolver probabilidades por defecto: [1.0, 0.0] para que is_valid_ec_id devuelva False
             probs = np.array([1.0, 0.0], dtype=np.float32)
             self._last_probs = probs

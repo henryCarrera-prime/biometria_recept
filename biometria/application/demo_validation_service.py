@@ -3,6 +3,7 @@ import base64
 import uuid
 import cv2
 import numpy as np
+import os
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
 import logging
@@ -15,6 +16,10 @@ from biometria.domain.interfaces import (
 from biometria.infrastructure.classifier.keras_cedula_classifier import KerasEcuadorIdClassifier
 
 logger = logging.getLogger("biometria.verify")
+
+# Crear directorio para debug de imágenes si no existe
+DEBUG_IMAGES_DIR = "debug_demo_images"
+os.makedirs(DEBUG_IMAGES_DIR, exist_ok=True)
 
 def _b64_to_bgr(b64: str) -> np.ndarray:
     """Convierte base64 a imagen BGR (OpenCV)"""
@@ -115,27 +120,101 @@ class DemoValidationService:
             })
             
             # 3. Detectar rostros
-            # Rostro en cédula
-            face_cedula = self.face_detector.detect(cedula_img)
+            logger.info(f"Detectando rostros - cédula: {W_cedula}x{H_cedula}, rostro: {W_rostro}x{H_rostro}")
+            
+            # Rostro en cédula - MEJORADO con más logging y manejo de errores
+            face_cedula = None
             face_cedula_bbox = None
             face_cedula_landmarks = None
             
-            if face_cedula and face_cedula.get("bbox"):
-                bbox = _clip_bbox(face_cedula["bbox"], W_cedula, H_cedula)
-                if bbox:
-                    face_cedula_bbox = [int(v) for v in bbox]
-                    face_cedula_landmarks = face_cedula.get("landmarks")
+            try:
+                logger.info("Iniciando detección de rostro en cédula...")
+                face_cedula = self.face_detector.detect(cedula_img)
+                logger.info(f"Resultado detección cédula: {face_cedula}")
+                
+                if face_cedula and face_cedula.get("bbox"):
+                    bbox = _clip_bbox(face_cedula["bbox"], W_cedula, H_cedula)
+                    logger.info(f"Bounding box cédula (original): {face_cedula['bbox']}")
+                    logger.info(f"Bounding box cédula (clipped): {bbox}")
+                    
+                    if bbox:
+                        face_cedula_bbox = [int(v) for v in bbox]
+                        face_cedula_landmarks = face_cedula.get("landmarks")
+                        logger.info(f"✅ Rostro detectado en cédula: {face_cedula_bbox}")
+                        logger.info(f"   Área del rostro: {(bbox[2]-bbox[0])*(bbox[3]-bbox[1])}px²")
+                        logger.info(f"   Porcentaje del área: {((bbox[2]-bbox[0])*(bbox[3]-bbox[1])/(W_cedula*H_cedula)*100):.2f}%")
+                        
+                        # Guardar imagen de cédula con rostro detectado
+                        try:
+                            # Crear copia de la imagen y dibujar bounding box
+                            cedula_debug = cedula_img.copy()
+                            x1, y1, x2, y2 = face_cedula_bbox
+                            cv2.rectangle(cedula_debug, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                            cv2.putText(cedula_debug, "ROSTRO DETECTADO", (x1, y1-10),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            filename = f"{DEBUG_IMAGES_DIR}/cedula_{uuid_validation}.jpg"
+                            cv2.imwrite(filename, cedula_debug)
+                            logger.info(f"💾 Imagen de cédula guardada: {filename}")
+                        except Exception as save_error:
+                            logger.error(f"Error guardando imagen de cédula: {save_error}")
+                    else:
+                        logger.warning("❌ Bounding box de cédula inválido después de clipping")
+                else:
+                    logger.warning("❌ No se detectó rostro en cédula - resultado vacío o sin bbox")
+                    # Guardar imagen de cédula original para análisis
+                    try:
+                        filename = f"{DEBUG_IMAGES_DIR}/cedula_original_{uuid_validation}.jpg"
+                        cv2.imwrite(filename, cedula_img)
+                        logger.info(f"💾 Imagen original de cédula guardada: {filename}")
+                    except Exception as save_error:
+                        logger.error(f"Error guardando imagen original de cédula: {save_error}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error en detección de rostro en cédula: {e}", exc_info=True)
             
-            # Rostro en imagen de persona
-            face_rostro = self.face_detector.detect(rostro_img)
+            # Rostro en imagen de persona - MEJORADO con más logging
+            face_rostro = None
             face_rostro_bbox = None
             face_rostro_landmarks = None
             
-            if face_rostro and face_rostro.get("bbox"):
-                bbox = _clip_bbox(face_rostro["bbox"], W_rostro, H_rostro)
-                if bbox:
-                    face_rostro_bbox = [int(v) for v in bbox]
-                    face_rostro_landmarks = face_rostro.get("landmarks")
+            try:
+                logger.info("Iniciando detección de rostro en imagen de persona...")
+                face_rostro = self.face_detector.detect(rostro_img)
+                logger.info(f"Resultado detección rostro: {face_rostro}")
+                
+                if face_rostro and face_rostro.get("bbox"):
+                    bbox = _clip_bbox(face_rostro["bbox"], W_rostro, H_rostro)
+                    logger.info(f"Bounding box rostro (original): {face_rostro['bbox']}")
+                    logger.info(f"Bounding box rostro (clipped): {bbox}")
+                    
+                    if bbox:
+                        face_rostro_bbox = [int(v) for v in bbox]
+                        face_rostro_landmarks = face_rostro.get("landmarks")
+                        logger.info(f"✅ Rostro detectado en persona: {face_rostro_bbox}")
+                        logger.info(f"   Área del rostro: {(bbox[2]-bbox[0])*(bbox[3]-bbox[1])}px²")
+                        logger.info(f"   Porcentaje del área: {((bbox[2]-bbox[0])*(bbox[3]-bbox[1])/(W_rostro*H_rostro)*100):.2f}%")
+                        
+                        # Guardar imagen de rostro de persona con bounding box
+                        try:
+                            rostro_debug = rostro_img.copy()
+                            x1, y1, x2, y2 = face_rostro_bbox
+                            cv2.rectangle(rostro_debug, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                            cv2.putText(rostro_debug, "ROSTRO DETECTADO", (x1, y1-10),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            filename = f"{DEBUG_IMAGES_DIR}/rostro_{uuid_validation}.jpg"
+                            cv2.imwrite(filename, rostro_debug)
+                            logger.info(f"💾 Imagen de rostro guardada: {filename}")
+                        except Exception as save_error:
+                            logger.error(f"Error guardando imagen de rostro: {save_error}")
+                    else:
+                        logger.warning("❌ Bounding box de rostro inválido después de clipping")
+                else:
+                    logger.warning("❌ No se detectó rostro en imagen de persona - resultado vacío o sin bbox")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error en detección de rostro en persona: {e}", exc_info=True)
             
             diagnostics.update({
                 "face_detection": {
@@ -156,91 +235,119 @@ class DemoValidationService:
             liveness_score = 0.0
             liveness_ok = False
             
-            if face_rostro_bbox:
-                try:
-                    # Verificar el tamaño de la imagen y usar la mejor opción para liveness
-                    H_rostro, W_rostro = rostro_img.shape[:2]
-                    
-                    # Si la imagen completa es demasiado pequeña (< 400px en lado corto), usar un enfoque alternativo
-                    min_dimension = min(H_rostro, W_rostro)
-                    if min_dimension < 400:
-                        logger.warning(f"Imagen de rostro muy pequeña: {W_rostro}x{H_rostro}. Intentando mejorar calidad...")
-                        
-                        # Intentar usar el recorte del rostro pero redimensionado
+            logger.info(f"Iniciando detección de liveness - rostro detectado: {face_rostro_bbox is not None}")
+            
+            # Intentar liveness incluso si no se detectó rostro específico
+            # Usar la imagen completa del rostro de persona
+            try:
+                logger.info("Intentando liveness detection con imagen completa...")
+                liveness_score = float(self.liveness_detector.score(rostro_img))
+                liveness_ok = liveness_score > 0.5  # Umbral reducido de 0.7 a 0.5
+                logger.info(f"Liveness score: {liveness_score}, OK: {liveness_ok}")
+            except Exception as e:
+                logger.error(f"Error en liveness detection: {e}", exc_info=True)
+                # Si falla, intentar con enfoque alternativo usando recorte de rostro
+                if face_rostro_bbox:
+                    try:
+                        logger.info("Intentando liveness con recorte de rostro...")
                         x1, y1, x2, y2 = face_rostro_bbox
                         face_crop = rostro_img[y1:y2, x1:x2]
+                        logger.info(f"Recorte de rostro para liveness: {face_crop.shape}")
                         
                         # Redimensionar el recorte para mejorar la calidad
                         scale_factor = 400.0 / min(face_crop.shape[:2])
                         new_width = int(face_crop.shape[1] * scale_factor)
                         new_height = int(face_crop.shape[0] * scale_factor)
                         resized_crop = cv2.resize(face_crop, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+                        logger.info(f"Recorte redimensionado: {resized_crop.shape}")
                         
                         liveness_score = float(self.liveness_detector.score(resized_crop))
-                    else:
-                        # Usar imagen completa si tiene suficiente tamaño
-                        liveness_score = float(self.liveness_detector.score(rostro_img))
-                    
-                    liveness_ok = liveness_score > 0.7  # Umbral ajustable
-                    logger.info(f"Liveness score obtenido: {liveness_score}, OK: {liveness_ok}")
-                    
-                except Exception as e:
-                    logger.error(f"Error en liveness detection: {e}")
-                    # En caso de error, intentar con la imagen completa como fallback
-                    try:
-                        liveness_score = float(self.liveness_detector.score(rostro_img))
-                        liveness_ok = liveness_score > 0.7
-                        logger.info(f"Liveness fallback score: {liveness_score}")
+                        liveness_ok = liveness_score > 0.5
+                        logger.info(f"Liveness score con recorte: {liveness_score}, OK: {liveness_ok}")
                     except Exception as fallback_error:
-                        logger.error(f"Error en fallback liveness: {fallback_error}")
+                        logger.error(f"Error en fallback liveness: {fallback_error}", exc_info=True)
+                else:
+                    logger.warning("No se puede verificar liveness - no se detectó rostro en imagen de persona")
             
             diagnostics.update({
                 "liveness": {
                     "score": round(liveness_score, 4),
                     "is_live": liveness_ok,
-                    "threshold": 0.7
+                    "threshold": 0.5
                 }
             })
             
-            # 5. Comparar similitud entre rostros
+            # 5. Comparar similitud entre rostros - MEJORADO para usar imagen completa si no hay rostro detectado
             similarity_score = 0.0
             similarity_ok = False
             
-            if face_cedula_bbox and face_rostro_bbox:
-                try:
-                    # Extraer rostros de las imágenes completas
-                    if face_cedula_bbox:
-                        x1, y1, x2, y2 = face_cedula_bbox
-                        face_cedula_crop = cedula_img[y1:y2, x1:x2]
-                    else:
-                        face_cedula_crop = cedula_img
+            logger.info(f"Verificando condiciones para similitud - cédula: {face_cedula_bbox is not None}, rostro: {face_rostro_bbox is not None}")
+            
+            # Siempre intentar calcular similitud, incluso si no se detectaron rostros localmente
+            # Rekognition puede encontrar rostros donde nuestro detector local no los encuentra
+            try:
+                logger.info("Calculando similitud con Rekognition...")
+                
+                # Si no se detectó rostro en cédula localmente, usar imagen completa
+                # Rekognition puede ser más efectivo encontrando rostros
+                if face_cedula_bbox:
+                    x1, y1, x2, y2 = face_cedula_bbox
+                    face_cedula_crop = cedula_img[y1:y2, x1:x2]
+                    logger.info(f"Usando recorte de rostro en cédula: {face_cedula_crop.shape}")
                     
-                    if face_rostro_bbox:
-                        x1, y1, x2, y2 = face_rostro_bbox
-                        face_rostro_crop = rostro_img[y1:y2, x1:x2]
-                    else:
-                        face_rostro_crop = rostro_img
+                    # Guardar recorte de cédula
+                    try:
+                        crop_cedula_filename = f"{DEBUG_IMAGES_DIR}/crop_cedula_{uuid_validation}.jpg"
+                        cv2.imwrite(crop_cedula_filename, face_cedula_crop)
+                        logger.info(f"💾 Recorte de cédula guardado: {crop_cedula_filename}")
+                    except Exception as crop_error:
+                        logger.error(f"Error guardando recorte de cédula: {crop_error}")
+                else:
+                    face_cedula_crop = cedula_img  # Usar imagen completa
+                    logger.info("⚠️ No se detectó rostro en cédula localmente - usando imagen completa para Rekognition")
+                
+                # Si no se detectó rostro en persona localmente, usar imagen completa
+                if face_rostro_bbox:
+                    x1, y1, x2, y2 = face_rostro_bbox
+                    face_rostro_crop = rostro_img[y1:y2, x1:x2]
+                    logger.info(f"Usando recorte de rostro en persona: {face_rostro_crop.shape}")
                     
-                    similarity_score = float(self.similarity_matcher.compare(face_cedula_crop, face_rostro_crop))
-                    similarity_ok = similarity_score >= 95.0  # Umbral de Rekognition
-                    
-                except Exception as e:
-                    logger.error(f"Error en comparación de similitud: {e}")
+                    # Guardar recorte de rostro
+                    try:
+                        crop_rostro_filename = f"{DEBUG_IMAGES_DIR}/crop_rostro_{uuid_validation}.jpg"
+                        cv2.imwrite(crop_rostro_filename, face_rostro_crop)
+                        logger.info(f"💾 Recorte de rostro guardado: {crop_rostro_filename}")
+                    except Exception as crop_error:
+                        logger.error(f"Error guardando recorte de rostro: {crop_error}")
+                else:
+                    face_rostro_crop = rostro_img  # Usar imagen completa
+                    logger.info("⚠️ No se detectó rostro en persona localmente - usando imagen completa para Rekognition")
+                
+                # Calcular similitud con Rekognition (puede encontrar rostros donde nuestro detector no los encuentra)
+                similarity_score = float(self.similarity_matcher.compare(face_cedula_crop, face_rostro_crop))
+                similarity_ok = similarity_score >= 95.0  # Umbral de Rekognition
+                
+                logger.info(f"✅ Similaridad calculada por Rekognition: {similarity_score}%, OK: {similarity_ok}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error en comparación de similitud: {e}", exc_info=True)
             
             diagnostics.update({
                 "similarity": {
                     "score": round(similarity_score, 2),
                     "is_match": similarity_ok,
-                    "threshold": 95.0
+                    "threshold": 95.0,
+                    "cedula_face_found": face_cedula_bbox is not None,
+                    "rostro_face_found": face_rostro_bbox is not None
                 }
             })
             
             # 6. Evaluación final
             all_checks_passed = (
-                cedula_valid and 
-                face_cedula_bbox is not None and 
+                cedula_valid and
+                face_cedula_bbox is not None and
                 face_rostro_bbox is not None and
-                liveness_ok and 
+                liveness_ok and
                 similarity_ok
             )
             

@@ -50,41 +50,57 @@ class RekognitionFaceDetector:
     def __init__(
         self,
         region: Optional[str] = None,
-        min_confidence: float = 80.0,
-        min_face_rel_size: float = 0.05,  # 5% del frame
+        min_confidence: float = 70.0,  # Reducido de 80.0 a 70.0 para mayor sensibilidad
+        min_face_rel_size: float = 0.015,  # Reducido de 3% a 1.5% para detectar rostros muy pequeños en cédulas
         attributes: List[str] = None,     # ["ALL"] para landmarks/pose/quality
     ):
         self.client = boto3.client("rekognition", region_name=region or os.getenv("AWS_REGION", "us-east-1"))
         self.min_confidence = float(min_confidence)
         self.min_face_rel_size = float(min_face_rel_size)
         self.attributes = attributes or ["ALL"]
+        logger.info(f"FaceDetector inicializado - min_confidence: {min_confidence}, min_face_rel_size: {min_face_rel_size}")
 
     def detect(self, img_bgr) -> Optional[dict]:
         try:
             h, w = img_bgr.shape[:2]
+            logger.info(f"Detectando rostros en imagen: {w}x{h}")
             jpg = _to_jpg_bytes(img_bgr)
             resp = self.client.detect_faces(Image={"Bytes": jpg}, Attributes=self.attributes)
             faces = resp.get("FaceDetails", []) or []
+            logger.info(f"Rekognition detectó {len(faces)} rostros potenciales")
+            
             if not faces:
+                logger.info("No se detectaron rostros en la imagen")
                 return None
 
             # filtra por confianza y tamaño relativo
             candidates = []
-            for f in faces:
+            for i, f in enumerate(faces):
                 conf = float(f.get("Confidence", 0.0))
                 bbox_rel = f.get("BoundingBox")
-                if conf < self.min_confidence or not bbox_rel:
+                if not bbox_rel:
+                    logger.info(f"Rostro {i}: sin bounding box, descartado")
                     continue
+                    
                 area_rel = (bbox_rel["Width"] * bbox_rel["Height"])
-                if area_rel < self.min_face_rel_size:
+                area_pct = round(area_rel * 100, 2)
+                
+                if conf < self.min_confidence:
+                    logger.info(f"Rostro {i}: confianza {conf} < {self.min_confidence}, descartado")
                     continue
+                if area_rel < self.min_face_rel_size:
+                    logger.info(f"Rostro {i}: área {area_pct}% < {self.min_face_rel_size*100}%, descartado")
+                    continue
+                    
                 candidates.append(f)
+                logger.info(f"Rostro {i}: candidato válido - confianza: {conf}, área: {area_pct}%")
 
             if not candidates:
+                logger.info(f"No hay candidatos válidos después de filtrar (min_confidence: {self.min_confidence}, min_area: {self.min_face_rel_size*100}%)")
                 return None
 
             # elige la cara más grande
-            def face_area(f): 
+            def face_area(f):
                 b = f["BoundingBox"]; return b["Width"] * b["Height"]
             best = max(candidates, key=face_area)
 
@@ -101,7 +117,8 @@ class RekognitionFaceDetector:
                 "candidates": len(candidates),
                 "chosen_area_pct": round(100.0 * area_rel, 2),
                 "confidence": round(confidence, 2),
-                "pose": {k: round(float(pose.get(k, 0.0)), 1) for k in ("Yaw","Pitch","Roll")}
+                "pose": {k: round(float(pose.get(k, 0.0)), 1) for k in ("Yaw","Pitch","Roll")},
+                "bbox_pixels": bbox
             })
 
             return {

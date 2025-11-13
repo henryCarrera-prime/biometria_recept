@@ -1,8 +1,0 @@
-{
-  "type": "demo_validation",
-  "uuid_validation": "957febda-331f-44d3-9233-795f62088d51",
-  "uuid_proceso": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "started_at_utc": "2025-11-12T18:15:30.588562+00:00",
-  "finished_at_utc": "2025-11-12T18:15:31.803506+00:00",
-  "error": "'cedula_valida'"
-}
