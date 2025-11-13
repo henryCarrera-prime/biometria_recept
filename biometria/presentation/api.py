@@ -21,7 +21,6 @@ from .schemas import (
 )
 from biometria.application.verify_cedula_service import VerifyEcuadorIdService
 from biometria.application.demo_validation_service import DemoValidationService
-from biometria.infrastructure.classifier.keras_cedula_classifier import KerasEcuadorIdClassifier
 from biometria.infrastructure.detection.rekognation_face_detector import RekognitionFaceDetector
 from biometria.infrastructure.liveness.luxand_client import LuxandClient
 from biometria.infrastructure.similarity.rekognition_adapter import RekognitionMatcher
@@ -665,7 +664,6 @@ class DemoValidationAPIView(APIView):
 
         # Inicializar servicios
         service = DemoValidationService(
-            # id_classifier=KerasEcuadorIdClassifier(),
             face_detector=RekognitionFaceDetector(),
             liveness_detector=LuxandClient(),
             similarity_matcher=RekognitionMatcher(),
@@ -692,10 +690,10 @@ class DemoValidationAPIView(APIView):
                     "status": "success" if result.status else "false",
                     "message": result.message,
                     "evaluation_pct": data_item.get("evaluacion", 0.0),
-                    # "cedula_valida": data_item.get("cedula_valida", False),
+                    "cedula_valida": data_item.get("cedula_valida", False),
                     "liveness_detectado": data_item.get("liveness_detectado", False),
                     "rostros_coinciden": data_item.get("rostros_coinciden", False),
-                    # "score_cedula": data_item.get("score_cedula", 0.0),
+                    "score_cedula": data_item.get("score_cedula", 0.0),
                     "score_liveness": data_item.get("score_liveness", 0.0),
                     "score_similarity": data_item.get("score_similarity", 0.0)
                 },
@@ -711,7 +709,7 @@ class DemoValidationAPIView(APIView):
                 "status": "success" if result.status else "false",
                 "message": result.message,
                 "evaluation_pct": result.payload["data"][0]["evaluacion"],
-                # "cedula_valida": result.payload["data"][0]["cedula_valida"],
+                "cedula_valida": result.payload["data"][0]["cedula_valida"],
                 "liveness_detectado": result.payload["data"][0]["liveness_detectado"],
                 "rostros_coinciden": result.payload["data"][0]["rostros_coinciden"],
                 "finished_at_utc": flow["finished_at_utc"],

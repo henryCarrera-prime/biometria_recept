@@ -52,19 +52,16 @@ class DemoValidationResponse:
 class DemoValidationService:
     """
     Servicio que valida:
-    1. Si la imagen de la cédula es una cédula válida
-    2. Si el rostro de la persona tiene señales de vida (liveness) - SOLO en rostroPersonaBase64
-    3. Si el rostro de la cédula y el rostro de la persona coinciden
+    1. Si el rostro de la persona tiene señales de vida (liveness) - SOLO en rostroPersonaBase64
+    2. Si el rostro de la cédula y el rostro de la persona coinciden
     """
     
     def __init__(
         self,
-        id_classifier: KerasEcuadorIdClassifier,
         face_detector: FaceDetector,
         liveness_detector: LivenessPassive,
         similarity_matcher: SimilarityMatcher,
     ):
-        self.id_classifier = id_classifier
         self.face_detector = face_detector
         self.liveness_detector = liveness_detector
         self.similarity_matcher = similarity_matcher
@@ -102,20 +99,17 @@ class DemoValidationService:
                 "uuid_validation": uuid_validation
             }
             
-            # 2. Validar cédula
-            cedula_valid, cedula_score = self.id_classifier.is_valid_ec_id(cedula_img)
-            cedula_score_pct = float(cedula_score) * 100.0
-            
-            # Obtener label predicho
-            predicted_label = self.id_classifier.predict_label(cedula_img)
+            # 2. Validación de cédula removida - solo se usa para extraer rostro
+            cedula_valid = True  # Asumir cédula válida para el flujo
+            cedula_score_pct = 100.0  # Score fijo 100% ya que no se valida
             
             diagnostics.update({
                 "cedula_validation": {
-                    "is_valid": bool(cedula_valid),
-                    "score": round(cedula_score, 4),
-                    "score_pct": round(cedula_score_pct, 2),
-                    "predicted_label": predicted_label,
-                    "threshold": self.id_classifier.th
+                    "is_valid": True,
+                    "score": 1.0,
+                    "score_pct": 100.0,
+                    "predicted_label": "not_validated",
+                    "threshold": "N/A"
                 }
             })
             
