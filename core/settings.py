@@ -182,6 +182,9 @@ USE_TZ = True
 # Configuración de Autenticación (Opcional)
 ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'True').lower() == 'true'
 
+LOGIN_URL = 'rest_framework:login'
+LOGOUT_URL = 'rest_framework:logout'
+
 # Django REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),

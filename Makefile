@@ -24,6 +24,27 @@ check_pyenv: ## Verifica si pyenv está instalado
 	fi
 
 install_pyenv: ## Instala pyenv
+	@echo "Instalando dependencias del sistema..."
+	sudo apt update
+	sudo apt install -y \
+	build-essential \
+	make \
+	gcc \
+	libssl-dev \
+	zlib1g-dev \
+	libbz2-dev \
+	libreadline-dev \
+	libsqlite3-dev \
+	curl \
+	llvm \
+	libncursesw5-dev \
+	xz-utils \
+	tk-dev \
+	libxml2-dev \
+	libxmlsec1-dev \
+	libffi-dev \
+	liblzma-dev \
+	libgl1
 	@echo "Instalando pyenv..."
 	curl https://pyenv.run | bash
 	@echo 'export PYENV_ROOT="$$HOME/.pyenv"' >> $$HOME/.bashrc

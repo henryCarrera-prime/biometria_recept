@@ -20,6 +20,9 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('admin/', admin.site.urls),
 
+    # Login para Swagger / DRF
+    path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
+
     # 👇 ahora todo lo de biometría vive aquí
     path('api/', include(('biometria.urls', 'biometria'), namespace='biometria')),
 
