@@ -1,7 +1,8 @@
 # Entornos virtuales
 env/
 venv/
-
+*.venv/*
+*tmp/
 # Base de datos
 *.sqlite3
 db.sqlite3
@@ -24,3 +25,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+debug*
+biometria_flows/*
