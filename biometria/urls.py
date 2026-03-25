@@ -7,7 +7,8 @@ from biometria.presentation.api import (
     VerifyCedulaAPIView,
     ConsultCedulaAPIView,
     TraceCedulaProcessAPIView,
-    DemoValidationAPIView
+    DemoValidationAPIView,
+    DemoValidationExtendedAPIView
 )
 
 app_name = "biometria"
@@ -22,4 +23,5 @@ urlpatterns = [
     path('biometrics/cedula/trace/<str:uuidProceso>', TraceCedulaProcessAPIView.as_view(), name='cedula-trace'),
     #Demo Validation Service
     path('biometrics/demo_validation_service', DemoValidationAPIView.as_view(), name='demo-validation'),
+    path('biometrics/demo_validation_extended', DemoValidationExtendedAPIView.as_view(), name='demo-validation-extended'),
 ]

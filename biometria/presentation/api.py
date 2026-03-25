@@ -17,10 +17,12 @@ from .schemas import (
     BiometricsFlowSerializer,
     TraceResponseSerializer,
     DemoValidationRequestSerializer,
-    DemoValidationResponseSerializer
+    DemoValidationResponseSerializer,
+    DemoValidationExtendedRequestSerializer,
+    DemoValidationExtendedResponseSerializer
 )
 from biometria.application.verify_cedula_service import VerifyEcuadorIdService
-from biometria.application.demo_validation_service import DemoValidationService
+from biometria.application.demo_validation_service import DemoValidationService, DemoValidationExtendedService
 from biometria.infrastructure.detection.rekognation_face_detector import RekognitionFaceDetector
 from biometria.infrastructure.liveness.luxand_client import LuxandClient
 from biometria.infrastructure.similarity.rekognition_adapter import RekognitionMatcher
@@ -746,6 +748,204 @@ class DemoValidationAPIView(APIView):
                 {
                     "status": False,
                     "message": f"Error procesando validación demo: {ex}",
+                    "uuidProceso": uuid_proceso,
+                    "data": [],
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ---------- Demo Validation Extended Service (con registro civil opcional) ----------
+class DemoValidationExtendedAPIView(APIView):
+    """
+    POST /api/biometrics/demo_validation_extended
+    
+    Body:
+    {
+      "uuidProceso": "04205d9c-1439-4a6e-a06c-21012a4ea744",
+      "cedulaFrontalBase64": "data:image/jpeg;base64,...",
+      "rostroPersonaBase64": "data:image/jpeg;base64,...",
+      "registroCivilBase64": "data:image/jpeg;base64,..."  [OPCIONAL]
+    }
+    
+    Flujo de validación:
+    1. Si registroCivilBase64 NO se proporciona:
+       - Compara cédula-rostro (igual al endpoint /demo_validation_service)
+    
+    2. Si registroCivilBase64 SE proporciona:
+       - Compara cédula-rostro Y registro_civil-rostro
+       - Ambas comparaciones deben pasar para validación exitosa
+       - Proporciona un espectro más amplio de validación
+    """
+    @swagger_auto_schema(
+        operation_summary="Servicio de validación demo extendido (con registro civil opcional)",
+        operation_description=(
+            "Valida cédula frontal, liveness del rostro y similitud entre rostros.\n\n"
+            "Parámetro OPCIONAL registroCivilBase64:\n"
+            "- Si se omite: realiza comparación cédula-rostro (igual a /demo_validation_service)\n"
+            "- Si se proporciona: realiza comparación cédula-rostro Y registro_civil-rostro\n\n"
+            "Resultados:\n"
+            "- cedula_rostro_match: Resultado de comparación cédula-rostro\n"
+            "- cedula_rostro_score: Score de similitud cédula-rostro (0-100%)\n"
+            "- registro_civil_rostro_match: Resultado de comparación registro_civil-rostro (null si no proporcionado)\n"
+            "- registro_civil_rostro_score: Score de similitud registro_civil-rostro (null si no proporcionado)\n"
+            "- registro_civil_provided: Indica si se proporcionó imagen de registro civil"
+        ),
+        request_body=DemoValidationExtendedRequestSerializer,
+        responses={200: DemoValidationExtendedResponseSerializer},
+        tags=["Biometría"]
+    )
+    def post(self, request):
+        uuid_proceso = request.data.get("uuidProceso")
+        cedula_frontal_b64 = request.data.get("cedulaFrontalBase64")
+        rostro_persona_b64 = request.data.get("rostroPersonaBase64")
+        registro_civil_b64 = request.data.get("registroCivilBase64") or None  # Parámetro opcional
+
+        # Validación básica
+        if not uuid_proceso or not cedula_frontal_b64 or not rostro_persona_b64:
+            return Response(
+                {
+                    "status": False,
+                    "message": "Parámetros requeridos: uuidProceso, cedulaFrontalBase64, rostroPersonaBase64",
+                    "uuidProceso": uuid_proceso or "",
+                    "data": []
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar formato base64 de parámetros requeridos
+        if not isinstance(cedula_frontal_b64, str) or "," not in cedula_frontal_b64:
+            return Response(
+                {
+                    "status": False,
+                    "message": "cedulaFrontalBase64 inválido (falta prefijo o contenido)",
+                    "uuidProceso": uuid_proceso,
+                    "data": []
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        if not isinstance(rostro_persona_b64, str) or "," not in rostro_persona_b64:
+            return Response(
+                {
+                    "status": False,
+                    "message": "rostroPersonaBase64 inválido (falta prefijo o contenido)",
+                    "uuidProceso": uuid_proceso,
+                    "data": []
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        # Validar formato base64 del parámetro opcional wenn proporcionado
+        if registro_civil_b64 and (not isinstance(registro_civil_b64, str) or "," not in registro_civil_b64):
+            return Response(
+                {
+                    "status": False,
+                    "message": "registroCivilBase64 inválido (falta prefijo o contenido)",
+                    "uuidProceso": uuid_proceso,
+                    "data": []
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        # Inicializar servicio extendido
+        service = DemoValidationExtendedService(
+            face_detector=RekognitionFaceDetector(),
+            liveness_detector=LuxandClient(),
+            similarity_matcher=RekognitionMatcher(),
+        )
+
+        started_at = _now_iso()
+        try:
+            # Ejecutar con soporte para registro civil opcional
+            result = service.execute(
+                uuid_proceso,
+                cedula_frontal_b64,
+                rostro_persona_b64,
+                registro_civil_b64
+            )
+
+            # Guardar flujo en TXT para auditoría
+            _ensure_dir(FLOW_LOG_DIR)
+            
+            # Obtener datos del payload con valores por defecto para evitar KeyError
+            data_item = result.payload.get("data", [{}])[0] if result.payload.get("data") else {}
+            uuid_validation = data_item.get("uuid_validation", str(uuid.uuid4()))
+            
+            flow = {
+                "type": "demo_validation_extended",
+                "uuid_validation": uuid_validation,
+                "uuid_proceso": uuid_proceso,
+                "started_at_utc": started_at,
+                "finished_at_utc": _now_iso(),
+                "registro_civil_provided": data_item.get("registro_civil_provided", False),
+                "result": {
+                    "status": "success" if result.status else "false",
+                    "message": result.message,
+                    "evaluation_pct": data_item.get("evaluacion", 0.0),
+                    "cedula_valida": data_item.get("cedula_valida", False),
+                    "liveness_detectado": data_item.get("liveness_detectado", False),
+                    "rostros_coinciden": data_item.get("rostros_coinciden", False),
+                    "score_cedula": data_item.get("score_cedula", 0.0),
+                    "score_liveness": data_item.get("score_liveness", 0.0),
+                    "score_similarity": data_item.get("score_similarity", 0.0),
+                    "cedula_rostro_match": data_item.get("cedula_rostro_match", False),
+                    "cedula_rostro_score": data_item.get("cedula_rostro_score", 0.0),
+                    "registro_civil_rostro_match": data_item.get("registro_civil_rostro_match"),
+                    "registro_civil_rostro_score": data_item.get("registro_civil_rostro_score")
+                },
+                "diagnostics": result.diagnostics
+            }
+            log_path = os.path.join(FLOW_LOG_DIR, f"{uuid_validation}.txt")
+            _safe_write_json(log_path, flow)
+
+            # Actualizar índice general del proceso
+            summary_item = {
+                "type": "demo_validation_extended",
+                "uuid_validation": result.payload["data"][0]["uuid_validation"],
+                "status": "success" if result.status else "false",
+                "message": result.message,
+                "evaluation_pct": result.payload["data"][0]["evaluacion"],
+                "cedula_valida": result.payload["data"][0]["cedula_valida"],
+                "liveness_detectado": result.payload["data"][0]["liveness_detectado"],
+                "rostros_coinciden": result.payload["data"][0]["rostros_coinciden"],
+                "cedula_rostro_match": result.payload["data"][0]["cedula_rostro_match"],
+                "registro_civil_rostro_match": result.payload["data"][0]["registro_civil_rostro_match"],
+                "registro_civil_provided": result.payload["data"][0]["registro_civil_provided"],
+                "finished_at_utc": flow["finished_at_utc"],
+            }
+            _append_general_index(uuid_proceso, summary_item)
+
+            # Respuesta HTTP
+            return Response({
+                "status": bool(result.status),
+                "message": result.message,
+                "uuidProceso": result.payload.get("uuidProceso"),
+                "data": result.payload.get("data"),
+                # Incluir diagnósticos para información detallada
+                "diagnostics": result.diagnostics
+            }, status=status.HTTP_200_OK)
+
+        except Exception as ex:
+            # Log de error
+            try:
+                _ensure_dir(FLOW_LOG_DIR)
+                error_log = {
+                    "type": "demo_validation_extended",
+                    "uuid_validation": str(uuid.uuid4()),
+                    "uuid_proceso": uuid_proceso,
+                    "started_at_utc": started_at,
+                    "finished_at_utc": _now_iso(),
+                    "error": str(ex),
+                }
+                _safe_write_json(os.path.join(FLOW_LOG_DIR, f"{error_log['uuid_validation']}.txt"), error_log)
+            except Exception:
+                pass
+
+            return Response(
+                {
+                    "status": False,
+                    "message": f"Error procesando validación demo extendida: {ex}",
                     "uuidProceso": uuid_proceso,
                     "data": [],
                 },

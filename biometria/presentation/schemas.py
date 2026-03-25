@@ -97,3 +97,36 @@ class DemoValidationResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
     uuidProceso = serializers.UUIDField()
     data = DemoValidationResponseItemSerializer(many=True)
+
+# ---------- Demo Validation Extended (POST) - Con soporte para registro civil ----------
+class DemoValidationExtendedRequestSerializer(serializers.Serializer):
+    uuidProceso = serializers.UUIDField(help_text="UUID del proceso general.")
+    cedulaFrontalBase64 = serializers.CharField(help_text="Imagen de la cédula frontal en base64.")
+    rostroPersonaBase64 = serializers.CharField(help_text="Imagen del rostro de la persona en base64.")
+    registroCivilBase64 = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="(OPCIONAL) Imagen del registro civil en base64. Si no se proporciona, solo se compara cedula-rostro."
+    )
+
+class DemoValidationExtendedResponseItemSerializer(serializers.Serializer):
+    uuid_validation = serializers.UUIDField()
+    evaluacion = serializers.FloatField()
+    cedula_valida = serializers.BooleanField()
+    liveness_detectado = serializers.BooleanField()
+    rostros_coinciden = serializers.BooleanField()
+    score_cedula = serializers.FloatField()
+    score_liveness = serializers.FloatField()
+    score_similarity = serializers.FloatField()
+    cedula_rostro_match = serializers.BooleanField()
+    cedula_rostro_score = serializers.FloatField()
+    registro_civil_rostro_match = serializers.BooleanField(allow_null=True)
+    registro_civil_rostro_score = serializers.FloatField(allow_null=True)
+    registro_civil_provided = serializers.BooleanField()
+
+class DemoValidationExtendedResponseSerializer(serializers.Serializer):
+    status = serializers.BooleanField()
+    message = serializers.CharField()
+    uuidProceso = serializers.UUIDField()
+    data = DemoValidationExtendedResponseItemSerializer(many=True)
+    diagnostics = serializers.JSONField(required=False)

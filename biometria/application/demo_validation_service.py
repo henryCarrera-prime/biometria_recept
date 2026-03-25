@@ -401,3 +401,401 @@ class DemoValidationService:
                 },
                 diagnostics={"error": str(e)}
             )
+
+
+class DemoValidationExtendedService:
+    """
+    Servicio que valida:
+    1. Si el rostro de la persona tiene señales de vida (liveness) - SOLO en rostroPersonaBase64
+    2. Si el rostro de la cédula y el rostro de la persona coinciden
+    3. (OPCIONAL) Si el rostro del registro civil y el rostro de la persona coinciden
+    
+    El parámetro registroCivilBase64 es OPCIONAL:
+    - Si se proporciona: realiza ambas comparaciones (cédula-rostro y registro_civil-rostro)
+    - Si no se proporciona: solo realiza la comparación cédula-rostro (igual al DemoValidationService)
+    
+    Al proporcionar una segunda imagen, el espectro de validación es más amplio.
+    """
+    
+    def __init__(
+        self,
+        face_detector: FaceDetector,
+        liveness_detector: LivenessPassive,
+        similarity_matcher: SimilarityMatcher,
+    ):
+        self.face_detector = face_detector
+        self.liveness_detector = liveness_detector
+        self.similarity_matcher = similarity_matcher
+
+    def execute(
+        self, 
+        uuid_proceso: str, 
+        cedula_frontal_b64: str, 
+        rostro_persona_b64: str,
+        registro_civil_b64: Optional[str] = None
+    ) -> DemoValidationResponse:
+        """
+        Ejecuta la validación extendida con soporte para registro civil opcional
+        
+        Args:
+            uuid_proceso: UUID del proceso
+            cedula_frontal_b64: Imagen de la cédula frontal en base64
+            rostro_persona_b64: Imagen del rostro de la persona en base64
+            registro_civil_b64: (OPCIONAL) Imagen del registro civil en base64
+            
+        Returns:
+            DemoValidationResponse con resultados completos
+        """
+        uuid_validation = str(uuid.uuid4())
+        
+        try:
+            # 1. Decodificar imágenes
+            cedula_img = _b64_to_bgr(cedula_frontal_b64)
+            rostro_img = _b64_to_bgr(rostro_persona_b64)
+            
+            # Decodificar registro civil si se proporciona
+            registro_civil_img = None
+            if registro_civil_b64:
+                try:
+                    registro_civil_img = _b64_to_bgr(registro_civil_b64)
+                    logger.info("✅ Imagen de registro civil decodificada exitosamente")
+                except Exception as e:
+                    logger.warning(f"⚠️ No se pudo decodificar registroCivilBase64: {e}")
+                    registro_civil_img = None
+            
+            H_cedula, W_cedula = cedula_img.shape[:2]
+            H_rostro, W_rostro = rostro_img.shape[:2]
+            H_registro = W_registro = None
+            if registro_civil_img is not None:
+                H_registro, W_registro = registro_civil_img.shape[:2]
+            
+            diagnostics = {
+                "cedula_image_size": f"{W_cedula}x{H_cedula}",
+                "rostro_image_size": f"{W_rostro}x{H_rostro}",
+                "registro_civil_image_size": f"{W_registro}x{H_registro}" if registro_civil_img is not None else "no proporcionada",
+                "uuid_validation": uuid_validation,
+                "has_registro_civil": registro_civil_img is not None
+            }
+            
+            # 2. Validación de cédula
+            cedula_valid = True
+            cedula_score_pct = 100.0
+            
+            diagnostics.update({
+                "cedula_validation": {
+                    "is_valid": True,
+                    "score": 1.0,
+                    "score_pct": 100.0,
+                    "predicted_label": "not_validated",
+                    "threshold": "N/A"
+                }
+            })
+            
+            # 3. Detectar rostros
+            logger.info(f"Detectando rostros - cédula: {W_cedula}x{H_cedula}, rostro: {W_rostro}x{H_rostro}")
+            
+            # Rostro en cédula
+            face_cedula = None
+            face_cedula_bbox = None
+            face_cedula_landmarks = None
+            
+            try:
+                logger.info("Iniciando detección de rostro en cédula...")
+                face_cedula = self.face_detector.detect(cedula_img)
+                logger.info(f"Resultado detección cédula: {face_cedula}")
+                
+                if face_cedula and face_cedula.get("bbox"):
+                    bbox = _clip_bbox(face_cedula["bbox"], W_cedula, H_cedula)
+                    logger.info(f"Bounding box cédula (original): {face_cedula['bbox']}")
+                    logger.info(f"Bounding box cédula (clipped): {bbox}")
+                    
+                    if bbox:
+                        face_cedula_bbox = [int(v) for v in bbox]
+                        face_cedula_landmarks = face_cedula.get("landmarks")
+                        logger.info(f"✅ Rostro detectado en cédula: {face_cedula_bbox}")
+                    else:
+                        logger.warning("❌ Bounding box de cédula inválido después de clipping")
+                else:
+                    logger.warning("❌ No se detectó rostro en cédula")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error en detección de rostro en cédula: {e}", exc_info=True)
+            
+            # Rostro en imagen de persona
+            face_rostro = None
+            face_rostro_bbox = None
+            face_rostro_landmarks = None
+            
+            try:
+                logger.info("Iniciando detección de rostro en imagen de persona...")
+                face_rostro = self.face_detector.detect(rostro_img)
+                logger.info(f"Resultado detección rostro: {face_rostro}")
+                
+                if face_rostro and face_rostro.get("bbox"):
+                    bbox = _clip_bbox(face_rostro["bbox"], W_rostro, H_rostro)
+                    logger.info(f"Bounding box rostro (original): {face_rostro['bbox']}")
+                    logger.info(f"Bounding box rostro (clipped): {bbox}")
+                    
+                    if bbox:
+                        face_rostro_bbox = [int(v) for v in bbox]
+                        face_rostro_landmarks = face_rostro.get("landmarks")
+                        logger.info(f"✅ Rostro detectado en persona: {face_rostro_bbox}")
+                    else:
+                        logger.warning("❌ Bounding box de rostro inválido después de clipping")
+                else:
+                    logger.warning("❌ No se detectó rostro en imagen de persona")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error en detección de rostro en persona: {e}", exc_info=True)
+            
+            # Rostro en registro civil (si se proporciona)
+            face_registro = None
+            face_registro_bbox = None
+            face_registro_landmarks = None
+            
+            if registro_civil_img is not None:
+                try:
+                    logger.info("Iniciando detección de rostro en registro civil...")
+                    face_registro = self.face_detector.detect(registro_civil_img)
+                    logger.info(f"Resultado detección registro civil: {face_registro}")
+                    
+                    if face_registro and face_registro.get("bbox"):
+                        bbox = _clip_bbox(face_registro["bbox"], W_registro, H_registro)
+                        logger.info(f"Bounding box registro civil (original): {face_registro['bbox']}")
+                        logger.info(f"Bounding box registro civil (clipped): {bbox}")
+                        
+                        if bbox:
+                            face_registro_bbox = [int(v) for v in bbox]
+                            face_registro_landmarks = face_registro.get("landmarks")
+                            logger.info(f"✅ Rostro detectado en registro civil: {face_registro_bbox}")
+                        else:
+                            logger.warning("❌ Bounding box de registro civil inválido después de clipping")
+                    else:
+                        logger.warning("❌ No se detectó rostro en registro civil")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error en detección de rostro en registro civil: {e}", exc_info=True)
+            
+            diagnostics.update({
+                "face_detection": {
+                    "cedula": {
+                        "face_found": face_cedula_bbox is not None,
+                        "bbox": face_cedula_bbox,
+                        "landmarks_count": len(face_cedula_landmarks) if face_cedula_landmarks else 0
+                    },
+                    "rostro": {
+                        "face_found": face_rostro_bbox is not None,
+                        "bbox": face_rostro_bbox,
+                        "landmarks_count": len(face_rostro_landmarks) if face_rostro_landmarks else 0
+                    },
+                    "registro_civil": {
+                        "provided": registro_civil_img is not None,
+                        "face_found": face_registro_bbox is not None if registro_civil_img is not None else None,
+                        "bbox": face_registro_bbox if registro_civil_img is not None else None,
+                        "landmarks_count": len(face_registro_landmarks) if face_registro_landmarks else 0
+                    }
+                }
+            })
+            
+            # 4. Verificar liveness SOLO en rostro de persona
+            liveness_score = 0.0
+            liveness_ok = False
+            
+            logger.info(f"Iniciando detección de liveness - rostro detectado: {face_rostro_bbox is not None}")
+            
+            try:
+                logger.info("Intentando liveness detection con imagen completa...")
+                liveness_score = float(self.liveness_detector.score(rostro_img))
+                liveness_ok = liveness_score > 0.5
+                logger.info(f"Liveness score: {liveness_score}, OK: {liveness_ok}")
+            except Exception as e:
+                logger.error(f"Error en liveness detection: {e}", exc_info=True)
+                if face_rostro_bbox:
+                    try:
+                        logger.info("Intentando liveness con recorte de rostro...")
+                        x1, y1, x2, y2 = face_rostro_bbox
+                        face_crop = rostro_img[y1:y2, x1:x2]
+                        scale_factor = 400.0 / min(face_crop.shape[:2])
+                        new_width = int(face_crop.shape[1] * scale_factor)
+                        new_height = int(face_crop.shape[0] * scale_factor)
+                        resized_crop = cv2.resize(face_crop, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+                        
+                        liveness_score = float(self.liveness_detector.score(resized_crop))
+                        liveness_ok = liveness_score > 0.5
+                        logger.info(f"Liveness score con recorte: {liveness_score}, OK: {liveness_ok}")
+                    except Exception as fallback_error:
+                        logger.error(f"Error en fallback liveness: {fallback_error}", exc_info=True)
+            
+            diagnostics.update({
+                "liveness": {
+                    "score": round(liveness_score, 4),
+                    "is_live": liveness_ok,
+                    "threshold": 0.5
+                }
+            })
+            
+            # 5. Comparar similitud: cedula-rostro
+            similarity_cedula_score = 0.0
+            similarity_cedula_ok = False
+            
+            try:
+                logger.info("Calculando similitud cedula-rostro con Rekognition...")
+                
+                if face_cedula_bbox:
+                    x1, y1, x2, y2 = face_cedula_bbox
+                    face_cedula_crop = cedula_img[y1:y2, x1:x2]
+                else:
+                    face_cedula_crop = cedula_img
+                
+                if face_rostro_bbox:
+                    x1, y1, x2, y2 = face_rostro_bbox
+                    face_rostro_crop = rostro_img[y1:y2, x1:x2]
+                else:
+                    face_rostro_crop = rostro_img
+                
+                similarity_cedula_score = float(self.similarity_matcher.compare(face_cedula_crop, face_rostro_crop))
+                similarity_cedula_ok = similarity_cedula_score >= 95.0
+                
+                logger.info(f"✅ Similaridad cedula-rostro: {similarity_cedula_score}%, OK: {similarity_cedula_ok}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error en comparación cedula-rostro: {e}", exc_info=True)
+            
+            # 6. Comparar similitud: registro_civil-rostro (OPCIONAL)
+            similarity_registro_score = 0.0
+            similarity_registro_ok = False
+            
+            if registro_civil_img is not None:
+                try:
+                    logger.info("Calculando similitud registro_civil-rostro con Rekognition...")
+                    
+                    if face_registro_bbox:
+                        x1, y1, x2, y2 = face_registro_bbox
+                        face_registro_crop = registro_civil_img[y1:y2, x1:x2]
+                    else:
+                        face_registro_crop = registro_civil_img
+                    
+                    if face_rostro_bbox:
+                        x1, y1, x2, y2 = face_rostro_bbox
+                        face_rostro_crop = rostro_img[y1:y2, x1:x2]
+                    else:
+                        face_rostro_crop = rostro_img
+                    
+                    similarity_registro_score = float(self.similarity_matcher.compare(face_registro_crop, face_rostro_crop))
+                    similarity_registro_ok = similarity_registro_score >= 95.0
+                    
+                    logger.info(f"✅ Similaridad registro_civil-rostro: {similarity_registro_score}%, OK: {similarity_registro_ok}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error en comparación registro_civil-rostro: {e}", exc_info=True)
+            
+            diagnostics.update({
+                "similarity": {
+                    "cedula_rostro": {
+                        "score": round(similarity_cedula_score, 2),
+                        "is_match": similarity_cedula_ok,
+                        "threshold": 95.0,
+                        "cedula_face_found": face_cedula_bbox is not None,
+                        "rostro_face_found": face_rostro_bbox is not None
+                    },
+                    "registro_civil_rostro": {
+                        "provided": registro_civil_img is not None,
+                        "score": round(similarity_registro_score, 2) if registro_civil_img is not None else None,
+                        "is_match": similarity_registro_ok if registro_civil_img is not None else None,
+                        "threshold": 95.0,
+                        "registro_face_found": face_registro_bbox is not None if registro_civil_img is not None else None,
+                        "rostro_face_found": face_rostro_bbox is not None
+                    }
+                }
+            })
+            
+            # 7. Evaluación final
+            # Si registro civil se proporciona, ambas comparaciones deben pasar
+            # Si no se proporciona, solo la de cédula-rostro
+            if registro_civil_img is not None:
+                similarity_ok = similarity_cedula_ok and similarity_registro_ok
+                similarity_score = (similarity_cedula_score + similarity_registro_score) / 2.0
+            else:
+                similarity_ok = similarity_cedula_ok
+                similarity_score = similarity_cedula_score
+            
+            all_checks_passed = (
+                cedula_valid and
+                face_cedula_bbox is not None and
+                face_rostro_bbox is not None and
+                liveness_ok and
+                similarity_ok
+            )
+            
+            # Si registro civil se proporciona, validar que exista rostro en él
+            if registro_civil_img is not None and face_registro_bbox is None:
+                all_checks_passed = False
+            
+            evaluation_pct = round((
+                cedula_score_pct + 
+                (liveness_score * 100) + 
+                similarity_score
+            ) / 3.0, 2)
+            
+            # Construir mensaje descriptivo
+            if all_checks_passed:
+                if registro_civil_img is not None:
+                    message = "Validación exitosa: cédula válida, liveness detectado, cedula-rostro coinciden y registro_civil-rostro coinciden."
+                else:
+                    message = "Validación exitosa: cédula válida, liveness detectado y rostros coinciden."
+            else:
+                failures = []
+                if not cedula_valid:
+                    failures.append("cédula no válida")
+                if not face_cedula_bbox:
+                    failures.append("no se detectó rostro en cédula")
+                if not face_rostro_bbox:
+                    failures.append("no se detectó rostro en imagen de persona")
+                if not liveness_ok:
+                    failures.append("liveness no detectado")
+                if not similarity_cedula_ok:
+                    failures.append("cedula-rostro no coinciden")
+                if registro_civil_img is not None and not similarity_registro_ok:
+                    failures.append("registro_civil-rostro no coinciden")
+                if registro_civil_img is not None and not face_registro_bbox:
+                    failures.append("no se detectó rostro en registro civil")
+                
+                message = f"Validación fallida: {', '.join(failures)}."
+            
+            payload = {
+                "uuidProceso": uuid_proceso,
+                "data": [{
+                    "uuid_validation": uuid_validation,
+                    "evaluacion": evaluation_pct,
+                    "cedula_valida": bool(cedula_valid),
+                    "liveness_detectado": liveness_ok,
+                    "rostros_coinciden": similarity_ok,
+                    "score_cedula": round(cedula_score_pct, 2),
+                    "score_liveness": round(liveness_score * 100, 2),
+                    "score_similarity": round(similarity_score, 2),
+                    "cedula_rostro_match": similarity_cedula_ok,
+                    "cedula_rostro_score": round(similarity_cedula_score, 2),
+                    "registro_civil_rostro_match": similarity_registro_ok if registro_civil_img is not None else None,
+                    "registro_civil_rostro_score": round(similarity_registro_score, 2) if registro_civil_img is not None else None,
+                    "registro_civil_provided": registro_civil_img is not None
+                }]
+            }
+            
+            return DemoValidationResponse(
+                status=all_checks_passed,
+                message=message,
+                payload=payload,
+                diagnostics=diagnostics
+            )
+            
+        except Exception as e:
+            logger.error(f"Error en demo_validation_extended_service: {e}")
+            return DemoValidationResponse(
+                status=False,
+                message=f"Error procesando validación: {str(e)}",
+                payload={
+                    "uuidProceso": uuid_proceso,
+                    "data": [{"uuid_validation": uuid_validation, "evaluacion": 0.0}]
+                },
+                diagnostics={"error": str(e)}
+            )
