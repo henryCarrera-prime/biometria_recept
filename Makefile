@@ -134,7 +134,7 @@ shell: ## Shell Django
 
 systemd_install: ## Crea/actualiza servicio systemd de Gunicorn
 	@echo "Instalando servicio $(SYSTEMD_SERVICE)..."
-	@sudo tee /etc/systemd/system/$(SYSTEMD_SERVICE) > /dev/null <<-EOF
+	@sudo bash -c 'cat > /etc/systemd/system/$(SYSTEMD_SERVICE) << "EOF"
 	[Unit]
 	Description=Gunicorn daemon for $(APP_NAME)
 	After=network.target
@@ -151,7 +151,7 @@ systemd_install: ## Crea/actualiza servicio systemd de Gunicorn
 	
 	[Install]
 	WantedBy=multi-user.target
-	EOF
+EOF'
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable $(SYSTEMD_SERVICE)
 	@sudo systemctl restart $(SYSTEMD_SERVICE)
@@ -168,7 +168,7 @@ nginx_install: ## Instala y configura Nginx en puerto 80 (sin dominio)
 	@echo "Instalando y configurando Nginx..."
 	@sudo apt update
 	@sudo apt install -y nginx
-	@sudo tee /etc/nginx/sites-available/$(NGINX_SITE) > /dev/null <<-EOF
+	@sudo bash -c 'cat > /etc/nginx/sites-available/$(NGINX_SITE) << "EOF"
 	server {
 	    listen 80 default_server;
 	    listen [::]:80 default_server;
@@ -185,7 +185,7 @@ nginx_install: ## Instala y configura Nginx en puerto 80 (sin dominio)
 	        proxy_read_timeout 120s;
 	    }
 	}
-	EOF
+EOF'
 	@sudo ln -sf /etc/nginx/sites-available/$(NGINX_SITE) /etc/nginx/sites-enabled/$(NGINX_SITE)
 	@sudo rm -f /etc/nginx/sites-enabled/default
 	@sudo nginx -t
