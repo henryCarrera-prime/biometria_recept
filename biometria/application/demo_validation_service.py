@@ -599,6 +599,9 @@ class DemoValidationExtendedService:
                         liveness_ok = liveness_score >= self.liveness_threshold
                     except Exception as fallback_ex:
                         logger.warning(f"Liveness fallback fall?: {fallback_ex}")
+            liveness_provider_status = getattr(self.liveness_detector, "last_status", None)
+            liveness_provider_reason = getattr(self.liveness_detector, "last_reason", None)
+            liveness_provider_active = bool(getattr(self.liveness_detector, "is_active", False))
 
             sources: List[Dict[str, Any]] = [
                 {
@@ -684,7 +687,14 @@ class DemoValidationExtendedService:
             if not etapa_2_ok:
                 failure_reasons.append("la c?dula no corresponde a un tipo de c?dula v?lido")
             if not etapa_3_ok:
-                failure_reasons.append("status de vida no aprobado")
+                if liveness_provider_status is not None or liveness_provider_reason:
+                    failure_reasons.append(
+                        "status de vida no aprobado "
+                        f"(proveedor_liveness_status={liveness_provider_status}, "
+                        f"proveedor_liveness_reason={liveness_provider_reason or 'sin_detalle'})"
+                    )
+                else:
+                    failure_reasons.append("status de vida no aprobado")
             if not etapa_4_ok:
                 failure_reasons.append("las im?genes no cumplen el umbral de similitud")
             if len(sources) < 2:
@@ -788,6 +798,10 @@ class DemoValidationExtendedService:
                     "score": round(liveness_score, 4),
                     "score_pct": round(liveness_score * 100.0, 2),
                     "threshold": self.liveness_threshold,
+                    "provider": "luxand",
+                    "provider_active": liveness_provider_active,
+                    "provider_status_code": liveness_provider_status,
+                    "provider_reason": liveness_provider_reason,
                 },
                 "similarity": {
                     "pairs": pair_scores,

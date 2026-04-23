@@ -134,24 +134,23 @@ shell: ## Shell Django
 
 systemd_install: ## Crea/actualiza servicio systemd de Gunicorn
 	@echo "Instalando servicio $(SYSTEMD_SERVICE)..."
-	@sudo bash -c 'cat > /etc/systemd/system/$(SYSTEMD_SERVICE) << "EOF"
-	[Unit]
-	Description=Gunicorn daemon for $(APP_NAME)
-	After=network.target
-	
-	[Service]
-	User=$(APP_USER)
-	Group=www-data
-	WorkingDirectory=$(APP_DIR)
-	Environment="PATH=$(APP_DIR)/$(VENV_DIR)/bin"
-	EnvironmentFile=-$(APP_DIR)/.env
-	ExecStart=$(APP_DIR)/$(VENV_DIR)/bin/gunicorn core.wsgi:application --bind $(GUNICORN_INTERNAL_BIND) --workers $(GUNICORN_WORKERS) --timeout $(GUNICORN_TIMEOUT)
-	Restart=always
-	RestartSec=3
-	
-	[Install]
-	WantedBy=multi-user.target
-EOF'
+	@printf '%s\n' \
+	'[Unit]' \
+	'Description=Gunicorn daemon for $(APP_NAME)' \
+	'After=network.target' \
+	'' \
+	'[Service]' \
+	'User=$(APP_USER)' \
+	'Group=www-data' \
+	'WorkingDirectory=$(APP_DIR)' \
+	'Environment="PATH=$(APP_DIR)/$(VENV_DIR)/bin"' \
+	'EnvironmentFile=-$(APP_DIR)/.env' \
+	'ExecStart=$(APP_DIR)/$(VENV_DIR)/bin/gunicorn core.wsgi:application --bind $(GUNICORN_INTERNAL_BIND) --workers $(GUNICORN_WORKERS) --timeout $(GUNICORN_TIMEOUT)' \
+	'Restart=always' \
+	'RestartSec=3' \
+	'' \
+	'[Install]' \
+	'WantedBy=multi-user.target' | sudo tee /etc/systemd/system/$(SYSTEMD_SERVICE) > /dev/null
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable $(SYSTEMD_SERVICE)
 	@sudo systemctl restart $(SYSTEMD_SERVICE)
@@ -168,24 +167,23 @@ nginx_install: ## Instala y configura Nginx en puerto 80 (sin dominio)
 	@echo "Instalando y configurando Nginx..."
 	@sudo apt update
 	@sudo apt install -y nginx
-	@sudo bash -c 'cat > /etc/nginx/sites-available/$(NGINX_SITE) << "EOF"
-	server {
-	    listen 80 default_server;
-	    listen [::]:80 default_server;
-	    server_name _;
-	    client_max_body_size 25M;
-	
-	    location / {
-	        proxy_pass http://$(GUNICORN_INTERNAL_BIND);
-	        proxy_http_version 1.1;
-	        proxy_set_header Host \$host;
-	        proxy_set_header X-Real-IP \$remote_addr;
-	        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-	        proxy_set_header X-Forwarded-Proto \$scheme;
-	        proxy_read_timeout 120s;
-	    }
-	}
-EOF'
+	@printf '%s\n' \
+	'server {' \
+	'    listen 80 default_server;' \
+	'    listen [::]:80 default_server;' \
+	'    server_name _;' \
+	'    client_max_body_size 25M;' \
+	'' \
+	'    location / {' \
+	'        proxy_pass http://$(GUNICORN_INTERNAL_BIND);' \
+	'        proxy_http_version 1.1;' \
+	'        proxy_set_header Host $$host;' \
+	'        proxy_set_header X-Real-IP $$remote_addr;' \
+	'        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;' \
+	'        proxy_set_header X-Forwarded-Proto $$scheme;' \
+	'        proxy_read_timeout 120s;' \
+	'    }' \
+	'}' | sudo tee /etc/nginx/sites-available/$(NGINX_SITE) > /dev/null
 	@sudo ln -sf /etc/nginx/sites-available/$(NGINX_SITE) /etc/nginx/sites-enabled/$(NGINX_SITE)
 	@sudo rm -f /etc/nginx/sites-enabled/default
 	@sudo nginx -t
