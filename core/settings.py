@@ -204,6 +204,11 @@ else:
     REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES'] = [
         'rest_framework.permissions.AllowAny',
     ]
+
+# Swagger público sin autenticación en la UI.
+SWAGGER_SETTINGS = {
+    "USE_SESSION_AUTH": False,
+}
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 

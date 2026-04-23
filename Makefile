@@ -5,6 +5,9 @@ PYTHON_VERSION := 3.10.5
 VENV_DIR := .venv
 PYTHON := $(VENV_DIR)/bin/python
 PIP := $(VENV_DIR)/bin/pip
+GUNICORN_WORKERS ?= 2
+GUNICORN_TIMEOUT ?= 120
+GUNICORN_BIND ?= 0.0.0.0:8000
 
 .PHONY: all setup install run migrate clean prod test lint help check_pyenv install_pyenv
 
@@ -95,7 +98,7 @@ run: ## Servidor desarrollo
 
 prod: ## Servidor producción (Gunicorn)
 	@echo "Iniciando Gunicorn..."
-	$(VENV_DIR)/bin/gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
+	$(VENV_DIR)/bin/gunicorn core.wsgi:application --bind $(GUNICORN_BIND) --workers $(GUNICORN_WORKERS) --timeout $(GUNICORN_TIMEOUT)
 
 clean: ## Limpia caché
 	find . -type d -name "__pycache__" -exec rm -rf {} +
@@ -118,3 +121,4 @@ superuser: ## Crear superusuario
 
 shell: ## Shell Django
 	$(PYTHON) manage.py shell
+
