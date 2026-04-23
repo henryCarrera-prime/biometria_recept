@@ -1,6 +1,24 @@
 # biometria/presentation/schemas.py
 from rest_framework import serializers
 
+# ---------- Configuración (POST) ----------
+class LuxandTokenConfigRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(
+        help_text="Token de Luxand a registrar en variable de entorno."
+    )
+    persist = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Si true, también persiste el token en el archivo .env.",
+    )
+
+
+class LuxandTokenConfigResponseSerializer(serializers.Serializer):
+    status = serializers.BooleanField()
+    message = serializers.CharField()
+    data = serializers.JSONField(required=False)
+
+
 # ---------- Verify (POST) ----------
 class BiometricsVerifyRequestSerializer(serializers.Serializer):
     uuidProceso = serializers.UUIDField(help_text="UUID del proceso general.")

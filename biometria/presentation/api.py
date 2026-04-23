@@ -1,6 +1,7 @@
 # biometria/presentation/api.py
 import os, json, uuid, datetime
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -12,6 +13,8 @@ from drf_yasg import openapi
 from biometria.infrastructure.similarity.rekognition_adapter import RekognitionMatcher
 from biometria.infrastructure.storage.s3_repositories import SmartReferenceRepository
 from .schemas import (
+    LuxandTokenConfigRequestSerializer,
+    LuxandTokenConfigResponseSerializer,
     BiometricsVerifyRequestSerializer,
     BiometricsVerifyResponseSerializer,
     BiometricsFlowSerializer,
@@ -30,6 +33,7 @@ from biometria.infrastructure.similarity.rekognition_adapter import RekognitionM
 
 
 FLOW_LOG_DIR = os.getenv("FLOW_LOG_DIR", os.path.join(os.getcwd(), "biometria_flows"))
+ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
 def _ensure_dir(path: str):
@@ -51,6 +55,126 @@ def _read_json_file(path: str) -> Optional[Dict[str, Any]]:
             return json.load(f)
     except Exception:
         return None
+
+def _quote_env_value(value: str) -> str:
+    if value is None:
+        return ""
+    if any(ch in value for ch in (' ', '#', '"', "'")):
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+    return value
+
+def _mask_secret(value: str, visible: int = 4) -> str:
+    if not value:
+        return ""
+    if len(value) <= visible:
+        return "*" * len(value)
+    return f"{'*' * (len(value) - visible)}{value[-visible:]}"
+
+def _upsert_env_var(env_file: Path, key: str, value: str):
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    lines: List[str] = []
+    if env_file.exists():
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+
+    rendered = f"{key}={_quote_env_value(value)}"
+    replaced = False
+    out: List[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in line:
+            left, _, _ = line.partition("=")
+            if left.strip() == key:
+                out.append(rendered)
+                replaced = True
+                continue
+        out.append(line)
+
+    if not replaced:
+        out.append(rendered)
+
+    env_file.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value).strip().lower()
+    if raw in ("1", "true", "t", "yes", "y", "si", "sí"):
+        return True
+    if raw in ("0", "false", "f", "no", "n"):
+        return False
+    return default
+
+
+class ConfigureLuxandTokenAPIView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Configurar token de Luxand",
+        operation_description=(
+            "Registra el token de Luxand en `os.environ` (runtime) y opcionalmente lo persiste en `.env`."
+        ),
+        request_body=LuxandTokenConfigRequestSerializer,
+        responses={200: LuxandTokenConfigResponseSerializer},
+        tags=["Configuración"],
+    )
+    def post(self, request):
+        token = str((request.data or {}).get("token") or "").strip()
+        persist = _as_bool((request.data or {}).get("persist", True), default=True)
+
+        if not token:
+            return Response(
+                {
+                    "status": False,
+                    "message": "El campo 'token' es requerido.",
+                    "data": [],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        os.environ["LUXAND_TOKEN"] = token
+        persisted = False
+        error_msg = None
+
+        if persist:
+            try:
+                _upsert_env_var(ENV_FILE_PATH, "LUXAND_TOKEN", token)
+                persisted = True
+            except Exception as ex:
+                error_msg = str(ex)
+
+        if persist and not persisted:
+            return Response(
+                {
+                    "status": False,
+                    "message": "Token cargado en runtime, pero no se pudo persistir en .env.",
+                    "data": {
+                        "env_file": str(ENV_FILE_PATH),
+                        "runtime_loaded": True,
+                        "persisted": False,
+                        "token_masked": _mask_secret(token),
+                        "error": error_msg,
+                    },
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "status": True,
+                "message": "Token de Luxand actualizado correctamente.",
+                "data": {
+                    "env_file": str(ENV_FILE_PATH),
+                    "runtime_loaded": True,
+                    "persisted": persisted,
+                    "token_masked": _mask_secret(token),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 def _append_general_index(uuid_proceso: str, item: Dict[str, Any]):
     """
