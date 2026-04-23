@@ -62,19 +62,18 @@ install_pyenv: ## Instala pyenv
 
 setup: check_pyenv ## Configuración inicial
 	@echo "Configurando entorno con Python $(PYTHON_VERSION)..."
-
-	export PYENV_ROOT="$$HOME/.pyenv"; \
+	@export PYENV_ROOT="$$HOME/.pyenv"; \
 	export PATH="$$PYENV_ROOT/bin:$$PATH"; \
-	eval "$$(pyenv init --path)"; \
-	eval "$$(pyenv init -)"; \
-
-	pyenv install -s $(PYTHON_VERSION)
-	pyenv local $(PYTHON_VERSION)
-
-	python3 -m venv $(VENV_DIR)
+	if [ ! -x "$$PYENV_ROOT/bin/pyenv" ]; then \
+		echo "pyenv no encontrado en $$PYENV_ROOT/bin/pyenv"; \
+		echo "Ejecuta: source ~/.bashrc o abre una nueva sesión y vuelve a correr make setup"; \
+		exit 1; \
+	fi; \
+	"$$PYENV_ROOT/bin/pyenv" install -s $(PYTHON_VERSION); \
+	"$$PYENV_ROOT/bin/pyenv" local $(PYTHON_VERSION); \
+	PYENV_VERSION=$(PYTHON_VERSION) "$$PYENV_ROOT/bin/pyenv" exec python -m venv $(VENV_DIR)
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements.txt
-
 	@if [ ! -f .env ]; then \
 		echo "Creando archivo .env básico..."; \
 		echo "LOG_LEVEL=INFO" > .env; \
